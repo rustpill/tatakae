@@ -34,6 +34,11 @@ pub mod anchor {
         handlers::accept_battle(ctx)?;
         Ok(())
     }
+
+    pub fn cancel_battle(ctx: Context<CancelBattle>) -> Result<()> {
+        handlers::cancel_battle(ctx)?;
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]

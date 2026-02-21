@@ -3,6 +3,7 @@ import { Program } from "@coral-xyz/anchor";
 import { Anchor } from "../target/types/anchor";
 import { PublicKey, Keypair } from "@solana/web3.js";
 import { assert } from "chai";
+import { getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
 
 describe("fighter-battle", () => {
   const provider = anchor.AnchorProvider.env();
@@ -495,4 +496,176 @@ describe("fighter-battle", () => {
       }
     });
   });
+
+  describe("cancel_battle", () => {
+    let cancelMintKeypair: Keypair;
+    let cancelMint: PublicKey;
+    let cancelBattlePda: PublicKey;
+    let cancelEscrow: PublicKey;
+    let cancelTokenAccount: PublicKey;
+
+    beforeEach(async () => {
+      cancelMintKeypair = Keypair.generate();
+      cancelMint = cancelMintKeypair.publicKey;
+
+      cancelTokenAccount = anchor.utils.token.associatedAddress({
+        mint: cancelMint,
+        owner: userA.publicKey,
+      });
+
+      await program.methods
+        .mintFighter()
+        .accounts({
+          user: userA.publicKey,
+          fighterMint: cancelMint,
+        })
+        .signers([userA, cancelMintKeypair])
+        .rpc();
+
+      [cancelBattlePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("battle"), cancelMint.toBuffer()],
+        program.programId
+      );
+
+      [cancelEscrow] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("escrow"),
+          cancelBattlePda.toBuffer(),
+          cancelMint.toBuffer(),
+        ],
+        program.programId
+      );
+
+      await program.methods
+        .createBattle(null, null, { pinkSlip: {} })
+        .accounts({
+          signer: userA.publicKey,
+          signerMint: cancelMint,
+          signerTokenAccount: cancelTokenAccount,
+        })
+        .signers([userA])
+        .rpc();
+    });
+
+    it("Creator can cancel a pending battle and reclaims NFT", async () => {
+      // NFT must be in escrow before cancel
+      const escrowBefore = await provider.connection.getTokenAccountBalance(cancelEscrow);
+      assert.equal(escrowBefore.value.amount, "1");
+
+      const signerBefore = await provider.connection.getTokenAccountBalance(cancelTokenAccount);
+      assert.equal(signerBefore.value.amount, "0");
+
+      const tx = await program.methods
+        .cancelBattle()
+        .accounts({
+          signer: userA.publicKey,
+          signerMint: cancelMint,
+        })
+        .signers([userA])
+        .rpc();
+
+      console.log("Battle cancelled:", tx);
+
+      // NFT returned to signer
+      const signerAfter = await provider.connection.getTokenAccountBalance(cancelTokenAccount);
+      assert.equal(signerAfter.value.amount, "1");
+
+      // Battle PDA closed
+      const battleAccount = await provider.connection.getAccountInfo(cancelBattlePda);
+      assert.isNull(battleAccount);
+
+      // Escrow token account closed
+      const escrowAccount = await provider.connection.getAccountInfo(cancelEscrow);
+      assert.isNull(escrowAccount);
+    });
+
+    it("Creator's SOL balance increases after cancel (rent reclaimed)", async () => {
+      const balanceBefore = await provider.connection.getBalance(userA.publicKey);
+
+      await program.methods
+        .cancelBattle()
+        .accounts({
+          signer: userA.publicKey,
+          signerMint: cancelMint,
+        })
+        .signers([userA])
+        .rpc();
+
+      const balanceAfter = await provider.connection.getBalance(userA.publicKey);
+
+      // Rent reclaimed from battle PDA + escrow > tx fee
+      assert.isAbove(balanceAfter, balanceBefore);
+    });
+
+    it("Non-creator (userB) cannot cancel userA's battle", async () => {
+
+      try {
+        await program.methods
+          .cancelBattle()
+          .accounts({
+            signer: userB.publicKey,
+            signerMint: cancelMint,
+          })
+          .signers([userB])
+          .rpc();
+        assert.fail("Should have failed: unauthorized cancel");
+      } catch (err) {
+        const logs = err.transactionLogs?.join(" ") ?? err.toString();
+        assert.include(logs, "UnauthorizedCancel");
+      }
+    });
+
+    it("Cannot cancel a battle that has already been completed", async () => {
+      // fresh for this test
+      const userBMintKeypair = Keypair.generate();
+      const fighterMintB = userBMintKeypair.publicKey;
+
+      await program.methods
+        .mintFighter()
+        .accounts({
+          user: userB.publicKey,
+          fighterMint: fighterMintB,
+        })
+        .signers([userB, userBMintKeypair])
+        .rpc();
+        
+      const userBTokenAccount = await getOrCreateAssociatedTokenAccount(
+        provider.connection,
+        userB,
+        fighterMintB,
+        userB.publicKey
+      );
+      
+      // userB accepts, battle resolves immediately to Completed
+      await program.methods
+        .acceptBattle()
+        .accounts({
+          opponent: userB.publicKey,
+          opponentMint: fighterMintB,
+          battle: cancelBattlePda,
+          battleSigner: userA.publicKey,
+          signerNftMint: cancelMint,
+          opponentTokenAccount: userBTokenAccount.address,
+        })
+        .signers([userB])
+        .rpc();
+
+      // Battle is now Completed, cancel must be rejected
+      try {
+        await program.methods
+          .cancelBattle()
+          .accounts({
+            signer: userA.publicKey,
+            signerMint: cancelMint,
+          })
+          .signers([userA])
+          .rpc();
+        assert.fail("Should have failed: battle not pending");
+      } catch (err) {
+        const logs = err.transactionLogs?.join(" ") ?? err.toString();
+        assert.include(logs, "BattleNotPending");
+      }
+    });
+  });
+
 });
