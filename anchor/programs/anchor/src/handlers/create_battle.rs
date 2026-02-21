@@ -25,9 +25,9 @@ pub struct CreateBattle<'info> {
         constraint = signer_token_account.mint == signer_mint.key(),
         constraint = signer_token_account.amount == 1 @ FighterError::InvalidNFTMint,
     )]
-    pub signer_token_account: Account<'info, TokenAccount>,
+    pub signer_token_account: Box<Account<'info, TokenAccount>>,
 
-    /// Escrow token account to hold Signer's fighter NFT
+    /// Create escrow for the Signer NFT
     #[account(
         init,
         payer = signer,
@@ -36,9 +36,9 @@ pub struct CreateBattle<'info> {
         token::mint = signer_mint,
         token::authority = battle,
     )]
-    pub signer_escrow: Account<'info, TokenAccount>,
+    pub signer_escrow: Box<Account<'info, TokenAccount>>,
 
-    /// Battle PDA
+    /// Create Battle PDA
     #[account(
         init,
         payer = signer,
@@ -46,17 +46,15 @@ pub struct CreateBattle<'info> {
         seeds = [BATTLE_SEED, signer_mint.key().as_ref()],
         bump
     )]
-    pub battle: Account<'info, Battle>,
+    pub battle: Box<Account<'info, Battle>>,
 
-    /// System program
+    /// Program accounts needed
     pub system_program: Program<'info, System>,
-
-    /// Token program
     pub token_program: Program<'info, Token>,
 }
 
 impl<'info> CreateBattle<'info> {
-    /// Transfer fighter NFT from user to escrow
+    /// Transfer fighter NFT from signer to escrow
     pub fn transfer_to_escrow(&self) -> Result<()> {
         let cpi_accounts = Transfer {
             from: self.signer_token_account.to_account_info(),
@@ -78,8 +76,11 @@ pub fn create_battle(
     opponent_nft: Option<Pubkey>,
     battle_mode: BattleMode,
 ) -> Result<()> {
-    let battle = &mut ctx.accounts.battle;
+    // Clock for timestamp
     let clock = Clock::get()?;
+
+    // Battle PDA
+    let battle = &mut ctx.accounts.battle;
 
     // Either both Some or both None
     require!(
@@ -115,6 +116,7 @@ pub fn create_battle(
     // Transfer fighter NFT to escrow
     ctx.accounts.transfer_to_escrow()?;
 
+    // Emit event
     emit!(BattleCreated {
         battle: ctx.accounts.battle.key(),
         signer: ctx.accounts.battle.signer,

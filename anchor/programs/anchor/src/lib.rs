@@ -6,19 +6,27 @@ mod handlers;
 mod state;
 
 use handlers::*;
+use state::enums::BattleMode;
 
 declare_id!("HpDmnSupPc6nSMiKjWn5Bcm6hVVM4bQdAhCeiCFocmfz");
 
 #[program]
 pub mod anchor {
+    use crate::state::BattleMode;
+
     use super::*;
 
-    pub fn mint_fighter(ctx: Context<MintFighter>, name: String, power: u16) -> Result<()> {
-        handlers::mint_fighter::mint_fighter(ctx, name, power)
+    pub fn mint_fighter(ctx: Context<MintFighter>) -> Result<()> {
+        handlers::mint_fighter::mint_fighter(ctx)
     }
 
-    pub fn create_battle(ctx: Context<CreateBattle>) -> Result<()> {
-        handlers::create_battle(ctx, None, None, state::BattleMode::PinkSlip)?;
+    pub fn create_battle(
+        ctx: Context<CreateBattle>,
+        opponent: Option<Pubkey>,
+        opponent_nft: Option<Pubkey>,
+        battle_mode: BattleMode,
+    ) -> Result<()> {
+        handlers::create_battle(ctx, opponent, opponent_nft, battle_mode)?;
         Ok(())
     }
 

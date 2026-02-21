@@ -8,7 +8,7 @@ pub struct Battle {
     pub opponent: Option<Pubkey>, // optional until accepted
 
     pub signer_nft: Pubkey,
-    pub opponent_nft: Option<Pubkey>,
+    pub opponent_nft: Option<Pubkey>, // optional until accepted or target specific
 
     pub signer_power: Option<u16>,
     pub opponent_power: Option<u16>,

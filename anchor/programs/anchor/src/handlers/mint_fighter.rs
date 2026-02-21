@@ -5,11 +5,9 @@ use anchor_spl::{
 };
 
 use crate::constants::{DISCRIMINATOR, FIGHTER_SEED};
-use crate::errors::FighterError;
 use crate::state::Fighter;
 
 #[derive(Accounts)]
-#[instruction(name: String)]
 pub struct MintFighter<'info> {
     /// The user minting the fighter
     #[account(mut)]
@@ -25,16 +23,16 @@ pub struct MintFighter<'info> {
     )]
     pub fighter_mint: Account<'info, Mint>,
 
-    /// User's token account to receive the NFT
+    /// Users token account to receive the NFT
     #[account(
         init_if_needed,
         payer = user,
         associated_token::mint = fighter_mint,
         associated_token::authority = user,
     )]
-    pub user_token_account: Account<'info, TokenAccount>,
+    pub user_token_account: Box<Account<'info, TokenAccount>>,
 
-    /// Fighter PDA - stores all fighter data
+    /// Fighter PDA
     #[account(
         init,
         payer = user,
@@ -42,31 +40,29 @@ pub struct MintFighter<'info> {
         seeds = [FIGHTER_SEED, fighter_mint.key().as_ref()],
         bump
     )]
-    pub fighter: Account<'info, Fighter>,
+    pub fighter: Box<Account<'info, Fighter>>,
 
-    /// Token program
+    /// Program accounts needed
     pub token_program: Program<'info, Token>,
-
-    /// Associated token program
     pub associated_token_program: Program<'info, AssociatedToken>,
-
-    /// System program
     pub system_program: Program<'info, System>,
 
-    /// Rent sysvar
-    pub rent: Sysvar<'info, Rent>,
+    /// CHECK: SlotHashes sysvar
+    /// Used for randominity
+    #[account(address = anchor_lang::solana_program::sysvar::slot_hashes::ID)]
+    pub slot_hashes: UncheckedAccount<'info>,
 }
 
-pub fn mint_fighter(ctx: Context<MintFighter>, name: String, power: u16) -> Result<()> {
+pub fn mint_fighter(ctx: Context<MintFighter>) -> Result<()> {
     let fighter = &mut ctx.accounts.fighter;
     let clock = Clock::get()?;
 
-    // Validate name length
-    require!(name.len() <= 32, FighterError::NameTooLong);
-    require!(!name.is_empty(), FighterError::NameEmpty);
-
-    // Validate power range
-    require!((1..=100).contains(&power), FighterError::InvalidPowerRange);
+    // Gen random power 0-100 using slothashes
+    let random_value = crate::handlers::resolve_battle::get_random_u64(
+        &ctx.accounts.slot_hashes,
+        &ctx.accounts.fighter_mint.key(),
+    )?;
+    let power = ((random_value % 100) + 1) as u16; // 1-100
 
     // Initialize Fighter state
     fighter.owner = ctx.accounts.user.key();
@@ -75,7 +71,6 @@ pub fn mint_fighter(ctx: Context<MintFighter>, name: String, power: u16) -> Resu
     fighter.wins = 0;
     fighter.losses = 0;
     fighter.bite_penalties = 0;
-    fighter.name = name.clone();
     fighter.created_at = clock.unix_timestamp;
     fighter.bump = ctx.bumps.fighter;
 
@@ -102,7 +97,6 @@ pub fn mint_fighter(ctx: Context<MintFighter>, name: String, power: u16) -> Resu
     emit!(FighterMinted {
         mint: ctx.accounts.fighter_mint.key(),
         owner: ctx.accounts.user.key(),
-        name,
         power,
         timestamp: clock.unix_timestamp,
     });
@@ -116,7 +110,6 @@ pub fn mint_fighter(ctx: Context<MintFighter>, name: String, power: u16) -> Resu
 pub struct FighterMinted {
     pub mint: Pubkey,
     pub owner: Pubkey,
-    pub name: String,
     pub power: u16,
     pub timestamp: i64,
 }

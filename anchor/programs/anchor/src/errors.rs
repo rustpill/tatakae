@@ -38,12 +38,6 @@ pub enum FighterError {
     #[msg("Wrong fighter selected")]
     InvalidOpponentNFT,
 
-    #[msg("Fighter name is too long")]
-    NameTooLong,
-
-    #[msg("Fighter name is empty")]
-    NameEmpty,
-
     #[msg("Fighter power level out of range")]
     InvalidPowerRange,
 }

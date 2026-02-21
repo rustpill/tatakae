@@ -1,10 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { Anchor } from "../target/types/anchor";
-import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
-import {
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+import { PublicKey, Keypair } from "@solana/web3.js";
 import { assert } from "chai";
 
 describe("fighter-battle", () => {
@@ -12,7 +9,6 @@ describe("fighter-battle", () => {
   anchor.setProvider(provider);
 
   const program = anchor.workspace.Anchor as Program<Anchor>;
-  const payer = provider.wallet as anchor.Wallet;
 
   // Test wallets
   let userA: Keypair;
@@ -42,7 +38,6 @@ describe("fighter-battle", () => {
       userB.publicKey,
       2 * anchor.web3.LAMPORTS_PER_SOL
     );
-
     await provider.connection.confirmTransaction(airdropSigA);
     await provider.connection.confirmTransaction(airdropSigB);
   });
@@ -60,16 +55,13 @@ describe("fighter-battle", () => {
       );
 
       // Get user's token account
-      const userTokenAccount = await anchor.utils.token.associatedAddress({
+      const userTokenAccount = anchor.utils.token.associatedAddress({
         mint: fighterMintA,
         owner: userA.publicKey,
       });
 
-      const name = "Dragon";
-      const power = 85;
-
       const tx = await program.methods
-        .mintFighter(name, power)
+        .mintFighter()
         .accounts({
           user: userA.publicKey,
           fighterMint: fighterMintA,
@@ -81,8 +73,6 @@ describe("fighter-battle", () => {
 
       // Verify Fighter state
       const fighter = await program.account.fighter.fetch(fighterPdaA);
-      assert.equal(fighter.name, name);
-      assert.equal(fighter.power, power);
       assert.equal(fighter.wins, 0);
       assert.equal(fighter.losses, 0);
       assert.equal(fighter.owner.toBase58(), userA.publicKey.toBase58());
@@ -104,87 +94,18 @@ describe("fighter-battle", () => {
         program.programId
       );
 
-      const userTokenAccount = await anchor.utils.token.associatedAddress({
-        mint: fighterMintB,
-        owner: userB.publicKey,
-      });
-
-      const name = "Phoenix";
-      const power = 90;
-
       await program.methods
-        .mintFighter(name, power)
-        .accountsPartial({
+        .mintFighter()
+        .accounts({
           user: userB.publicKey,
           fighterMint: fighterMintB,
-          userTokenAccount,
-          fighter: fighterPdaB,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
         })
         .signers([userB, mint])
         .rpc();
 
       const fighter = await program.account.fighter.fetch(fighterPdaB);
-      assert.equal(fighter.name, name);
-      assert.equal(fighter.power, power);
     });
 
-    it("Fails to mint fighter with invalid power", async () => {
-      const mint = Keypair.generate();
-      const [fighterPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("fighter"), mint.publicKey.toBuffer()],
-        program.programId
-      );
-
-      const userTokenAccount = await anchor.utils.token.associatedAddress({
-        mint: mint.publicKey,
-        owner: userA.publicKey,
-      });
-
-      try {
-        await program.methods
-          .mintFighter("Invalid", 150) // Power > 100
-          .accounts({
-            user: userA.publicKey,
-            fighterMint: mint.publicKey,
-          })
-          .signers([userA, mint])
-          .rpc();
-        assert.fail("Should have failed with invalid power");
-      } catch (err) {
-        assert.include(err.toString(), "InvalidPowerRange");
-      }
-    });
-
-    it("Fails to mint fighter with empty name", async () => {
-      const mint = Keypair.generate();
-      const [fighterPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("fighter"), mint.publicKey.toBuffer()],
-        program.programId
-      );
-
-      const userTokenAccount = await anchor.utils.token.associatedAddress({
-        mint: mint.publicKey,
-        owner: userA.publicKey,
-      });
-
-      try {
-        await program.methods
-          .mintFighter("", 75) // Empty name
-          .accounts({
-            user: userA.publicKey,
-            fighterMint: mint.publicKey,
-          })
-          .signers([userA, mint])
-          .rpc();
-        assert.fail("Should have failed with empty name");
-      } catch (err) {
-        assert.include(err.toString(), "NameEmpty");
-      }
-    });
   });
 
   describe("create_battle", () => {
@@ -205,13 +126,17 @@ describe("fighter-battle", () => {
         program.programId
       );
 
-      const signerTokenAccount = await anchor.utils.token.associatedAddress({
+      const signerTokenAccount = anchor.utils.token.associatedAddress({
         mint: fighterMintA,
         owner: userA.publicKey,
       });
 
       const tx = await program.methods
-        .createBattle()
+        .createBattle(
+          null, // No specific opponent
+          null, // No specific opponent NFT
+          { pinkSlip: {} } // Battle mode
+        )
         .accounts({
           signer: userA.publicKey,
           signerMint: fighterMintA,
@@ -248,18 +173,13 @@ describe("fighter-battle", () => {
       const mint = Keypair.generate();
       const fighterMintC = mint.publicKey;
 
-      const [fighterPdaC] = PublicKey.findProgramAddressSync(
-        [Buffer.from("fighter"), fighterMintC.toBuffer()],
-        program.programId
-      );
-
-      const userTokenAccount = await anchor.utils.token.associatedAddress({
+      const userTokenAccount = anchor.utils.token.associatedAddress({
         mint: fighterMintC,
         owner: userA.publicKey,
       });
 
       await program.methods
-        .mintFighter("Titan", 80)
+        .mintFighter()
         .accounts({
           user: userA.publicKey,
           fighterMint: fighterMintC,
@@ -273,17 +193,11 @@ describe("fighter-battle", () => {
         program.programId
       );
 
-      const [escrowC] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("escrow"),
-          battlePdaTargeted.toBuffer(),
-          fighterMintC.toBuffer(),
-        ],
-        program.programId
-      );
-
       await program.methods
         .createBattle(
+          userB.publicKey, // Specific opponent
+          fighterMintB, // Specific opponent NFT
+          { bite: {} }
         )
         .accounts({
           signer: userA.publicKey,
@@ -303,18 +217,13 @@ describe("fighter-battle", () => {
       const mint = Keypair.generate();
       const fighterMint = mint.publicKey;
 
-      const [fighterPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("fighter"), fighterMint.toBuffer()],
-        program.programId
-      );
-
-      const userTokenAccount = await anchor.utils.token.associatedAddress({
+      const userTokenAccount = anchor.utils.token.associatedAddress({
         mint: fighterMint,
         owner: userA.publicKey,
       });
 
       await program.methods
-        .mintFighter("SelfTest", 75)
+        .mintFighter()
         .accounts({
           user: userA.publicKey,
           fighterMint,
@@ -322,23 +231,13 @@ describe("fighter-battle", () => {
         .signers([userA, mint])
         .rpc();
 
-      const [battlePdaSelf] = PublicKey.findProgramAddressSync(
-        [Buffer.from("battle"), fighterMint.toBuffer()],
-        program.programId
-      );
-
-      const [escrowSelf] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("escrow"),
-          battlePdaSelf.toBuffer(),
-          fighterMint.toBuffer(),
-        ],
-        program.programId
-      );
-
       try {
         await program.methods
-          .createBattle()
+          .createBattle(
+            userA.publicKey, // Self
+            fighterMint,
+            { pinkSlip: {} }
+          )
           .accounts({
             signer: userA.publicKey,
             signerMint: fighterMint,
@@ -355,6 +254,7 @@ describe("fighter-battle", () => {
 
   describe("accept_battle and resolve", () => {
     it("User B accepts open battle and battle resolves (PinkSlip)", async () => {
+
       // Derive Escrow B
       [escrowB] = PublicKey.findProgramAddressSync(
         [
@@ -365,30 +265,25 @@ describe("fighter-battle", () => {
         program.programId
       );
 
-      const opponentTokenAccount = await anchor.utils.token.associatedAddress({
+      const opponentTokenAccount = anchor.utils.token.associatedAddress({
         mint: fighterMintB,
         owner: userB.publicKey,
       });
 
-      const signerTokenAccount = await anchor.utils.token.associatedAddress({
+      const signerTokenAccount = anchor.utils.token.associatedAddress({
         mint: fighterMintA,
         owner: userA.publicKey,
       });
-
-      // Get slot hashes sysvar
-      const slotHashes = new PublicKey(
-        "SysvarS1otHashes111111111111111111111111111"
-      );
 
       const tx = await program.methods
         .acceptBattle()
         .accounts({
           opponent: userB.publicKey,
           opponentMint: fighterMintB,
-          signerMint: fighterMintA,
           opponentTokenAccount,
-          signerTokenAccount,
           battle: battlePda,
+          battleSigner: userA.publicKey,
+          signerNftMint: fighterMintA,
         })
         .signers([userB])
         .rpc();
@@ -403,11 +298,11 @@ describe("fighter-battle", () => {
 
       // Verify winner got both NFTs (PinkSlip mode)
       const winner = battle.winner;
-      const winnerTokenAccountA = await anchor.utils.token.associatedAddress({
+      const winnerTokenAccountA = anchor.utils.token.associatedAddress({
         mint: fighterMintA,
         owner: winner,
       });
-      const winnerTokenAccountB = await anchor.utils.token.associatedAddress({
+      const winnerTokenAccountB = anchor.utils.token.associatedAddress({
         mint: fighterMintB,
         owner: winner,
       });
@@ -445,13 +340,13 @@ describe("fighter-battle", () => {
         program.programId
       );
 
-      const tokenAccountC = await anchor.utils.token.associatedAddress({
+      const tokenAccountC = anchor.utils.token.associatedAddress({
         mint: fighterMintC,
         owner: userA.publicKey,
       });
 
       await program.methods
-        .mintFighter("Viper", 70)
+        .mintFighter()
         .accounts({
           user: userA.publicKey,
           fighterMint: fighterMintC,
@@ -465,13 +360,13 @@ describe("fighter-battle", () => {
         program.programId
       );
 
-      const tokenAccountD = await anchor.utils.token.associatedAddress({
+      const tokenAccountD = anchor.utils.token.associatedAddress({
         mint: fighterMintD,
         owner: userB.publicKey,
       });
 
       await program.methods
-        .mintFighter("Cobra", 75)
+        .mintFighter()
         .accounts({
           user: userB.publicKey,
           fighterMint: fighterMintD,
@@ -485,17 +380,8 @@ describe("fighter-battle", () => {
         program.programId
       );
 
-      const [escrowC] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("escrow"),
-          battlePdaBite.toBuffer(),
-          fighterMintC.toBuffer(),
-        ],
-        program.programId
-      );
-
       await program.methods
-        .createBattle()
+        .createBattle(null, null, { bite: {} })
         .accounts({
           signer: userA.publicKey,
           signerMint: fighterMintC,
@@ -505,28 +391,16 @@ describe("fighter-battle", () => {
         .rpc();
 
       // Accept battle
-      const [escrowD] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("escrow"),
-          battlePdaBite.toBuffer(),
-          fighterMintD.toBuffer(),
-        ],
-        program.programId
-      );
-
-      const slotHashes = new PublicKey(
-        "SysvarS1otHashes111111111111111111111111111"
-      );
 
       await program.methods
         .acceptBattle()
         .accounts({
           opponent: userB.publicKey,
           opponentMint: fighterMintD,
-          signerMint: fighterMintC,
           opponentTokenAccount: tokenAccountD,
-          signerTokenAccount: tokenAccountC,
           battle: battlePdaBite,
+          battleSigner: userA.publicKey,
+          signerNftMint: fighterMintC,
         })
         .signers([userB])
         .rpc();
@@ -554,19 +428,21 @@ describe("fighter-battle", () => {
       // Create battle
       const mint = Keypair.generate();
       const fighterMint = mint.publicKey;
+      const mint2 = Keypair.generate();
+      const opponentMint = mint2.publicKey;
 
-      const [fighterPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("fighter"), fighterMint.toBuffer()],
-        program.programId
-      );
-
-      const tokenAccount = await anchor.utils.token.associatedAddress({
+      const tokenAccount = anchor.utils.token.associatedAddress({
         mint: fighterMint,
         owner: userA.publicKey,
       });
 
+      const opponentTokenAccount = anchor.utils.token.associatedAddress({
+        mint: opponentMint,
+        owner: userA.publicKey,
+      });
+
       await program.methods
-        .mintFighter("SelfBattle", 80)
+        .mintFighter()
         .accounts({
           user: userA.publicKey,
           fighterMint,
@@ -574,22 +450,22 @@ describe("fighter-battle", () => {
         .signers([userA, mint])
         .rpc();
 
+        await program.methods
+        .mintFighter()
+        .accounts({
+          user: userA.publicKey,
+          fighterMint: opponentMint,
+        })
+        .signers([userA, mint2])
+        .rpc();
+
       const [battlePdaSelf] = PublicKey.findProgramAddressSync(
         [Buffer.from("battle"), fighterMint.toBuffer()],
         program.programId
       );
 
-      const [escrow] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("escrow"),
-          battlePdaSelf.toBuffer(),
-          fighterMint.toBuffer(),
-        ],
-        program.programId
-      );
-
       await program.methods
-        .createBattle()
+        .createBattle(null, null, { pinkSlip: {} })
         .accounts({
           signer: userA.publicKey,
           signerMint: fighterMint,
@@ -598,27 +474,24 @@ describe("fighter-battle", () => {
         .signers([userA])
         .rpc();
 
-      // Try to accept own battle
-      const slotHashes = new PublicKey(
-        "SysvarS1otHashes111111111111111111111111111"
-      );
-
       try {
         await program.methods
           .acceptBattle()
           .accounts({
             opponent: userA.publicKey, // Same user
-            opponentMint: fighterMint,
-            signerMint: fighterMint,
-            opponentTokenAccount: tokenAccount,
-            signerTokenAccount: tokenAccount,
+            opponentMint: opponentMint,
+            opponentTokenAccount: opponentTokenAccount,
             battle: battlePdaSelf,
+            battleSigner: userA.publicKey,
+            signerNftMint: fighterMint, 
           })
           .signers([userA])
           .rpc();
         assert.fail("Should have failed accepting own battle");
       } catch (err) {
-        assert.include(err.toString(), "CannotAcceptOwnBattle");
+        const logs = err.transactionLogs?.join(" ") ?? err.toString();
+        assert.include(logs, "CannotAcceptOwnBattle");
+        assert.include(logs, "6004")
       }
     });
   });

@@ -18,9 +18,6 @@ pub struct Fighter {
     pub losses: u32,
     /// Number of bite penalties accumulated
     pub bite_penalties: u8,
-    /// Fighter name (stored on-chain)
-    #[max_len(32)]
-    pub name: String,
     /// Created timestamp
     pub created_at: i64,
     /// PDA bump
