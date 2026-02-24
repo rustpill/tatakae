@@ -6,8 +6,6 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(InitSpace)]
 pub struct Fighter {
-    /// The owner of this fighter
-    pub owner: Pubkey,
     /// The NFT mint address for this fighter
     pub mint: Pubkey,
     /// Fighter's power level (used in battle probability)

@@ -102,7 +102,6 @@ pub fn initialize_fighter(
     let fighter = &mut ctx.accounts.fighter;
     let clock = Clock::get()?;
 
-    fighter.owner = ctx.accounts.owner.key();
     fighter.mint = mint;
     fighter.power = power;
     fighter.wins = 0;
@@ -112,7 +111,6 @@ pub fn initialize_fighter(
 
     emit!(FighterInitialized {
         mint,
-        owner: ctx.accounts.owner.key(),
         power,
         timestamp: clock.unix_timestamp,
     });
@@ -153,7 +151,6 @@ fn compute_root(leaf: [u8; 32], proof: &[[u8; 32]]) -> [u8; 32] {
 #[event]
 pub struct FighterInitialized {
     pub mint: Pubkey,
-    pub owner: Pubkey,
     pub power: u16,
     pub timestamp: i64,
 }

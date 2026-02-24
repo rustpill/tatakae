@@ -67,6 +67,8 @@ pub struct AcceptBattle<'info> {
     /// Battle PDA
     #[account(
         mut,
+        // Close battle pda at the end
+        close = battle_signer,
         // Cannot accept your own battle, or a pending battle
         constraint = battle.status == BattleStatus::Pending @ FighterError::BattleNotPending,
         constraint = battle.signer != opponent.key() @ FighterError::CannotAcceptOwnBattle,
@@ -79,7 +81,7 @@ pub struct AcceptBattle<'info> {
         seeds = [FIGHTER_SEED, battle.signer_nft.as_ref()],
         bump,
     )]
-    pub signer_stats: Box<Account<'info, Fighter>>,
+    pub signer_fighter: Box<Account<'info, Fighter>>,
 
     /// Opponent Fighter PDA derived from their NFT mint
     #[account(
@@ -87,9 +89,9 @@ pub struct AcceptBattle<'info> {
         seeds = [FIGHTER_SEED, opponent_mint.key().as_ref()],
         bump,
     )]
-    pub opponent_stats: Box<Account<'info, Fighter>>,
+    pub opponent_fighter: Box<Account<'info, Fighter>>,
 
-    /// CHECK: Required for signers_opponent_ata
+    /// CHECK: Required for signers_opponent_ata and for closing account
     #[account(
         address = battle.signer
     )]
@@ -195,7 +197,7 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
 
     // Validate power level constraints if set
     if ctx.accounts.battle.min_power.is_some() || ctx.accounts.battle.max_power.is_some() {
-        let opponent_power = ctx.accounts.opponent_stats.power;
+        let opponent_power = ctx.accounts.opponent_fighter.power;
 
         if let Some(min) = ctx.accounts.battle.min_power {
             require!(opponent_power >= min, FighterError::InvalidPowerRange);
@@ -218,8 +220,8 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
     // RESOLVE BATTLE LOGIC
 
     // Get power stats
-    let signer_power = ctx.accounts.signer_stats.power;
-    let opponent_power = ctx.accounts.opponent_stats.power;
+    let signer_power = ctx.accounts.signer_fighter.power;
+    let opponent_power = ctx.accounts.opponent_fighter.power;
 
     // Get randomness
     let random_value = crate::handlers::resolve_battle::get_random_u64(
@@ -237,7 +239,7 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
     let signer_nft = ctx.accounts.battle.signer_nft;
     let opponent_nft = ctx.accounts.battle.opponent_nft;
     let signer_pubkey = ctx.accounts.battle.signer;
-    let opponent_pubkey = ctx.accounts.battle.opponent;
+    let opponent_pubkey = ctx.accounts.battle.opponent.unwrap();
     let battle_seeds = &[BATTLE_SEED, signer_nft.as_ref(), &[battle_bump]];
 
     // Resolve battle mode
@@ -267,7 +269,7 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
                     &ctx.accounts.opponent_token_account,
                     battle_seeds,
                 )?;
-                ctx.accounts.battle.winner = opponent_pubkey;
+                ctx.accounts.battle.winner = Some(opponent_pubkey);
             }
         }
         // Return NFTs back to owners, apply bite penalty
@@ -287,17 +289,17 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
                 // Change winner in Battle PDA
                 ctx.accounts.battle.winner = Some(signer_pubkey);
                 // Bite amount
-                let bite_amount = ctx.accounts.opponent_stats.power / 5;
+                let bite_amount = ctx.accounts.opponent_fighter.power / 5;
                 // Append 20% of opponents fighter power
-                ctx.accounts.signer_stats.power = ctx
+                ctx.accounts.signer_fighter.power = ctx
                     .accounts
-                    .signer_stats
+                    .signer_fighter
                     .power
                     .saturating_add(bite_amount);
                 // Remove 20% of opponents fighter power
-                ctx.accounts.opponent_stats.power = ctx
+                ctx.accounts.opponent_fighter.power = ctx
                     .accounts
-                    .opponent_stats
+                    .opponent_fighter
                     .power
                     .saturating_sub(bite_amount);
                 // Emit Battle results
@@ -305,32 +307,32 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
                     battle: ctx.accounts.battle.key(),
                     loser_nft: opponent_nft.unwrap(),
                     winner_nft: signer_nft,
-                    winner_new_power: ctx.accounts.signer_stats.power,
-                    loser_new_power: ctx.accounts.opponent_stats.power
+                    winner_new_power: ctx.accounts.signer_fighter.power,
+                    loser_new_power: ctx.accounts.opponent_fighter.power
                 });
             } else {
                 // Change winner in Battle PDA
-                ctx.accounts.battle.winner = opponent_pubkey;
+                ctx.accounts.battle.winner = Some(opponent_pubkey);
                 // Bite amount
-                let bite_amount = ctx.accounts.signer_stats.power / 5;
+                let bite_amount = ctx.accounts.signer_fighter.power / 5;
                 // Append 20% of signers fighter power
-                ctx.accounts.opponent_stats.power = ctx
+                ctx.accounts.opponent_fighter.power = ctx
                     .accounts
-                    .opponent_stats
+                    .opponent_fighter
                     .power
                     .saturating_add(bite_amount);
                 // Remove 20% of signers fighter power
-                ctx.accounts.signer_stats.power = ctx
+                ctx.accounts.signer_fighter.power = ctx
                     .accounts
-                    .signer_stats
+                    .signer_fighter
                     .power.saturating_sub(bite_amount);
                 // Emit Battle results
                 emit!(crate::handlers::resolve_battle::BattleBiteResult {
                     battle: ctx.accounts.battle.key(),
                     loser_nft: signer_nft,
                     winner_nft: opponent_nft.unwrap(),
-                    winner_new_power: ctx.accounts.opponent_stats.power,
-                    loser_new_power: ctx.accounts.signer_stats.power
+                    winner_new_power: ctx.accounts.opponent_fighter.power,
+                    loser_new_power: ctx.accounts.signer_fighter.power
                 });
             }
         }
@@ -344,11 +346,11 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
 
     // Update fighter stats
     if signer_wins {
-        ctx.accounts.signer_stats.record_win();
-        ctx.accounts.opponent_stats.record_loss();
+        ctx.accounts.signer_fighter.record_win();
+        ctx.accounts.opponent_fighter.record_loss();
     } else {
-        ctx.accounts.signer_stats.record_loss();
-        ctx.accounts.opponent_stats.record_win();
+        ctx.accounts.signer_fighter.record_loss();
+        ctx.accounts.opponent_fighter.record_win();
     }
 
     // Emit event
