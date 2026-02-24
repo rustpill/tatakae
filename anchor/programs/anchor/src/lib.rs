@@ -12,12 +12,22 @@ declare_id!("HpDmnSupPc6nSMiKjWn5Bcm6hVVM4bQdAhCeiCFocmfz");
 
 #[program]
 pub mod anchor {
-    use crate::state::BattleMode;
 
     use super::*;
 
-    pub fn mint_fighter(ctx: Context<MintFighter>) -> Result<()> {
-        handlers::mint_fighter::mint_fighter(ctx)
+    pub fn initialize_merkle_root(
+        ctx: Context<InitializeMerkleRoot>,
+        merkle_root: [u8; 32],
+    ) -> Result<()> {
+        handlers::initialize_merkle_root::initialize_merkle_root(ctx, merkle_root)
+    }
+
+    pub fn initialize_fighter(
+        ctx: Context<InitializeFighter>,
+        power: u16,
+        proof: Vec<[u8; 32]>,
+    ) -> Result<()> {
+        handlers::initialize_fighter::initialize_fighter(ctx, power, proof)
     }
 
     pub fn create_battle(

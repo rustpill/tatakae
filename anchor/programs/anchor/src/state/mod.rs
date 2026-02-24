@@ -6,3 +6,6 @@ pub use enums::*;
 
 pub mod fighter;
 pub use fighter::*;
+
+pub mod config;
+pub use config::*;

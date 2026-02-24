@@ -40,4 +40,11 @@ pub enum FighterError {
 
     #[msg("Fighter power level out of range")]
     InvalidPowerRange,
+
+    // for init fighters
+    #[msg("Merkle proof is invalid for the provided attributes")]
+    InvalidProof,
+
+    #[msg("Unauthorized instruction")]
+    Unauthorized,
 }

@@ -25,13 +25,14 @@ pub struct AcceptBattle<'info> {
     #[account(
         mut,
         // Check ownership of NFT matches
-        constraint = opponent_token_account.owner == opponent.key() @ FighterError::UnauthorizedFighter,
+        associated_token::authority = opponent.key(),
         // Check the token accounts mint is the same as the NFT mint
-        constraint = opponent_token_account.mint == opponent_mint.key(),
+        associated_token::mint = opponent_mint.key(),
         // Check the token accounts mint is not the same as the NFT already in the battle
         constraint = opponent_token_account.mint != battle.signer_nft @ FighterError::InvalidNFTMint,
         // Check if valid NFT count
         constraint = opponent_token_account.amount == 1 @ FighterError::InvalidNFTMint,
+        
     )]
     pub opponent_token_account: Box<Account<'info, TokenAccount>>,
 
@@ -285,12 +286,20 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
             if signer_wins {
                 // Change winner in Battle PDA
                 ctx.accounts.battle.winner = Some(signer_pubkey);
+                // Bite amount
+                let bite_amount = ctx.accounts.opponent_stats.power / 5;
                 // Append 20% of opponents fighter power
                 ctx.accounts.signer_stats.power = ctx
                     .accounts
                     .signer_stats
                     .power
-                    .saturating_add(ctx.accounts.opponent_stats.power / 5);
+                    .saturating_add(bite_amount);
+                // Remove 20% of opponents fighter power
+                ctx.accounts.opponent_stats.power = ctx
+                    .accounts
+                    .opponent_stats
+                    .power
+                    .saturating_sub(bite_amount);
                 // Emit Battle results
                 emit!(crate::handlers::resolve_battle::BattleBiteResult {
                     battle: ctx.accounts.battle.key(),
@@ -302,12 +311,19 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
             } else {
                 // Change winner in Battle PDA
                 ctx.accounts.battle.winner = opponent_pubkey;
+                // Bite amount
+                let bite_amount = ctx.accounts.signer_stats.power / 5;
                 // Append 20% of signers fighter power
                 ctx.accounts.opponent_stats.power = ctx
                     .accounts
-                    .signer_stats
+                    .opponent_stats
                     .power
-                    .saturating_add(ctx.accounts.signer_stats.power / 5);
+                    .saturating_add(bite_amount);
+                // Remove 20% of signers fighter power
+                ctx.accounts.signer_stats.power = ctx
+                    .accounts
+                    .signer_stats
+                    .power.saturating_sub(bite_amount);
                 // Emit Battle results
                 emit!(crate::handlers::resolve_battle::BattleBiteResult {
                     battle: ctx.accounts.battle.key(),
@@ -330,15 +346,9 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
     if signer_wins {
         ctx.accounts.signer_stats.record_win();
         ctx.accounts.opponent_stats.record_loss();
-        if battle_mode == crate::state::BattleMode::Bite {
-            ctx.accounts.opponent_stats.apply_bite_penalty();
-        }
     } else {
         ctx.accounts.signer_stats.record_loss();
         ctx.accounts.opponent_stats.record_win();
-        if battle_mode == crate::state::BattleMode::Bite {
-            ctx.accounts.signer_stats.apply_bite_penalty();
-        }
     }
 
     // Emit event

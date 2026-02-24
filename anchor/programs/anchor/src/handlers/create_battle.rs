@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 use crate::constants::*;
@@ -21,8 +22,11 @@ pub struct CreateBattle<'info> {
     /// Signer token account holding the fighter NFT
     #[account(
         mut,
-        constraint = signer_token_account.owner == signer.key() @ FighterError::UnauthorizedFighter,
-        constraint = signer_token_account.mint == signer_mint.key(),
+        // Check ownership of NFT matches
+        associated_token::authority = signer.key(),
+        // Check the token accounts mint is the same as the NFT mint
+        associated_token::mint = signer.key(),
+        // Check if valid NFT count
         constraint = signer_token_account.amount == 1 @ FighterError::InvalidNFTMint,
     )]
     pub signer_token_account: Box<Account<'info, TokenAccount>>,
@@ -51,6 +55,7 @@ pub struct CreateBattle<'info> {
     /// Program accounts needed
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
 }
 
 impl<'info> CreateBattle<'info> {
