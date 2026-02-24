@@ -211,7 +211,6 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
     // Update battle state with opponent info
     ctx.accounts.battle.opponent = Some(ctx.accounts.opponent.key());
     ctx.accounts.battle.opponent_nft = Some(ctx.accounts.opponent_mint.key());
-    ctx.accounts.battle.status = BattleStatus::Accepted;
     ctx.accounts.battle.accepted_at = Some(clock.unix_timestamp);
 
     // Transfer opponents NFT to opponent escrow

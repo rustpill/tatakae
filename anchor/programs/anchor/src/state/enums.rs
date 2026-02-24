@@ -4,7 +4,6 @@ use anchor_lang::Space;
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
 pub enum BattleStatus {
     Pending,
-    Accepted,
     Completed,
     Cancelled,
 }

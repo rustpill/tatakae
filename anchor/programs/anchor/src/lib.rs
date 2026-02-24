@@ -35,8 +35,17 @@ pub mod anchor {
         opponent: Option<Pubkey>,
         opponent_nft: Option<Pubkey>,
         battle_mode: BattleMode,
+        min_power: Option<u16>,
+        max_power: Option<u16>,
     ) -> Result<()> {
-        handlers::create_battle(ctx, opponent, opponent_nft, battle_mode)?;
+        handlers::create_battle(
+            ctx,
+            opponent,
+            opponent_nft,
+            battle_mode,
+            min_power,
+            max_power,
+        )?;
         Ok(())
     }
 

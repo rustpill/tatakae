@@ -80,6 +80,8 @@ pub fn create_battle(
     opponent: Option<Pubkey>,
     opponent_nft: Option<Pubkey>,
     battle_mode: BattleMode,
+    min_power: Option<u16>,
+    max_power: Option<u16>,
 ) -> Result<()> {
     // Clock for timestamp
     let clock = Clock::get()?;
@@ -110,8 +112,8 @@ pub fn create_battle(
     battle.opponent_power = None;
     battle.battle_mode = battle_mode;
     battle.status = BattleStatus::Pending;
-    battle.min_power = None;
-    battle.max_power = None;
+    battle.min_power = min_power;
+    battle.max_power = max_power;
     battle.created_at = clock.unix_timestamp;
     battle.accepted_at = None;
     battle.random_seed = None;
