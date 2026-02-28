@@ -4,7 +4,7 @@ use crate::state::Config;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
-pub struct InitializeMerkleRoot<'info> {
+pub struct InitializeConfig<'info> {
     #[account(
     mut,
     // Only program can call
@@ -26,12 +26,14 @@ pub struct InitializeMerkleRoot<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn initialize_merkle_root(
-    ctx: Context<InitializeMerkleRoot>,
+pub fn initialize_config(
+    ctx: Context<InitializeConfig>,
     merkle_root: [u8; 32],
+    collection_mint: Pubkey,
 ) -> Result<()> {
     let config = &mut ctx.accounts.config;
     config.merkle_root = merkle_root;
+    config.collection_mint = collection_mint;
     config.bump = ctx.bumps.config;
     Ok(())
 }

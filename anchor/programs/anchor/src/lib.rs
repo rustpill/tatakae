@@ -8,18 +8,19 @@ mod state;
 use handlers::*;
 use state::enums::BattleMode;
 
-declare_id!("HpDmnSupPc6nSMiKjWn5Bcm6hVVM4bQdAhCeiCFocmfz");
+declare_id!("7RyLCWzdDQkMCmGpFKp5tXmTdXL8BhYKUMmA4nq88uRF");
 
 #[program]
 pub mod anchor {
 
     use super::*;
 
-    pub fn initialize_merkle_root(
-        ctx: Context<InitializeMerkleRoot>,
+    pub fn initialize_config(
+        ctx: Context<InitializeConfig>,
         merkle_root: [u8; 32],
+        collection_mint: Pubkey,
     ) -> Result<()> {
-        handlers::initialize_merkle_root::initialize_merkle_root(ctx, merkle_root)
+        handlers::initialize_config::initialize_config(ctx, merkle_root, collection_mint)
     }
 
     pub fn initialize_fighter(

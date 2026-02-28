@@ -24,7 +24,3 @@ pub const CONFIG_SEED: &[u8] = b"config";
 
 /// Used in initialize_config
 pub const PROGRAM_AUTHORITY: Pubkey = pubkey!("2QZvzZ4XszjtBiPKMy7wb3YZ4EwbRTovbDki99c4Cr87");
-
-/// Collection ID used in initialize_fighter
-/// todo()!
-pub const COLLECTION_MINT: Pubkey = pubkey!("HpDmnSupPc6nSMiKjWn5Bcm6hVVM4bQdAhCeiCFocmfz");

@@ -6,7 +6,7 @@ use anchor_spl::{
 use mpl_token_metadata::accounts::Metadata;
 use sha3::{Digest, Keccak256};
 
-use crate::constants::{COLLECTION_MINT, CONFIG_SEED, DISCRIMINATOR, FIGHTER_SEED};
+use crate::constants::{CONFIG_SEED, DISCRIMINATOR, FIGHTER_SEED};
 use crate::errors::FighterError;
 use crate::state::{Config, Fighter};
 
@@ -82,7 +82,7 @@ pub fn initialize_fighter(
         .as_ref()
         .ok_or(FighterError::InvalidNFTMint)?;
     require!(
-        collection.verified && collection.key == COLLECTION_MINT,
+        collection.verified && collection.key == ctx.accounts.config.collection_mint,
         FighterError::InvalidNFTMint
     );
 

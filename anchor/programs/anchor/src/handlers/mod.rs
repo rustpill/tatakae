@@ -12,5 +12,5 @@ pub use initialize_fighter::*;
 pub mod cancel_battle;
 pub use cancel_battle::*;
 
-pub mod initialize_merkle_root;
-pub use initialize_merkle_root::*;
+pub mod initialize_config;
+pub use initialize_config::*;

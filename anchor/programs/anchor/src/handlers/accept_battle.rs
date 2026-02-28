@@ -93,6 +93,7 @@ pub struct AcceptBattle<'info> {
 
     /// CHECK: Required for signers_opponent_ata and for closing account
     #[account(
+        mut,
         address = battle.signer
     )]
     pub battle_signer: AccountInfo<'info>,
@@ -273,17 +274,6 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
         }
         // Return NFTs back to owners, apply bite penalty
         crate::state::BattleMode::Bite => {
-            ctx.accounts.transfer_from_escrow(
-                &ctx.accounts.signer_escrow,
-                &ctx.accounts.signer_token_account,
-                battle_seeds,
-            )?;
-            ctx.accounts.transfer_from_escrow(
-                &ctx.accounts.opponent_escrow,
-                &ctx.accounts.opponent_token_account,
-                battle_seeds,
-            )?;
-
             if signer_wins {
                 // Change winner in Battle PDA
                 ctx.accounts.battle.winner = Some(signer_pubkey);
@@ -334,6 +324,17 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
                     loser_new_power: ctx.accounts.signer_fighter.power
                 });
             }
+
+            ctx.accounts.transfer_from_escrow(
+                &ctx.accounts.signer_escrow,
+                &ctx.accounts.signer_token_account,
+                battle_seeds,
+            )?;
+            ctx.accounts.transfer_from_escrow(
+                &ctx.accounts.opponent_escrow,
+                &ctx.accounts.opponent_token_account,
+                battle_seeds,
+            )?;
         }
     }
 
