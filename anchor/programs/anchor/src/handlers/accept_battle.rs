@@ -9,7 +9,10 @@ use crate::state::{Battle, BattleStatus, Fighter};
 #[derive(Accounts)]
 pub struct AcceptBattle<'info> {
     /// Opponent (signer) accepting the battle
-    #[account(mut)]
+    #[account(
+        mut,
+        // Cannot accept your own battle
+        constraint = opponent.key() != battle.signer @ FighterError::CannotAcceptOwnBattle)]
     pub opponent: Signer<'info>,
 
     /// Opponent NFT mint
@@ -69,9 +72,8 @@ pub struct AcceptBattle<'info> {
         mut,
         // Close battle pda at the end
         close = battle_signer,
-        // Cannot accept your own battle, or a pending battle
+        // Cannot accept a pending battle
         constraint = battle.status == BattleStatus::Pending @ FighterError::BattleNotPending,
-        constraint = battle.signer != opponent.key() @ FighterError::CannotAcceptOwnBattle,
     )]
     pub battle: Box<Account<'info, Battle>>,
 
