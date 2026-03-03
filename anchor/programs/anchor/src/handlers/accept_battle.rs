@@ -93,12 +93,12 @@ pub struct AcceptBattle<'info> {
     )]
     pub opponent_fighter: Box<Account<'info, Fighter>>,
 
-    /// CHECK: Required for signers_opponent_ata and for closing account
+    /// Required for signers_opponent_ata and for closing account
     #[account(
         mut,
         address = battle.signer
     )]
-    pub battle_signer: AccountInfo<'info>,
+    pub battle_signer: SystemAccount<'info>,
 
     /// Signers token account for opponents NFT mint (derived from signer + opponent_mint)
     /// Used if the signer wins
@@ -224,6 +224,12 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
     // Get power stats
     let signer_power = ctx.accounts.signer_fighter.power;
     let opponent_power = ctx.accounts.opponent_fighter.power;
+
+    // 0 guard
+    require!(
+        signer_power > 0 && opponent_power > 0,
+        FighterError::InvalidPowerRange
+    );
 
     // Get randomness
     let random_value = crate::handlers::resolve_battle::get_random_u64(

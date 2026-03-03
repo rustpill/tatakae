@@ -40,7 +40,7 @@ pub struct InitializeFighter<'info> {
     )]
     pub fighter_mint: Account<'info, Mint>,
 
-    /// CHECK:
+    /// CHECK: Metaplex metadata PDA
     /// Get metadata to check collection id
     #[account(
         seeds = [
