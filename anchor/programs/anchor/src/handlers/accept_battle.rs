@@ -60,7 +60,6 @@ pub struct AcceptBattle<'info> {
 
     /// Signers Fighter PDA derived from their NFT mint
     #[account(
-        mut,
         seeds = [FIGHTER_SEED, battle.signer_nft.as_ref()],
         bump,
     )]
@@ -68,7 +67,6 @@ pub struct AcceptBattle<'info> {
 
     /// Opponent Fighter PDA derived from their NFT mint
     #[account(
-        mut,
         seeds = [FIGHTER_SEED, opponent_mint.key().as_ref()],
         bump,
     )]
