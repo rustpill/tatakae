@@ -22,11 +22,6 @@ pub struct ResolveBattle<'info> {
         mut,
         close = battle_signer,
         constraint = battle.status == BattleStatus::Accepted @ FighterError::BattleNotAccepted,
-        constraint = {
-            let accepted_slot = battle.accepted_slot
-                .ok_or(FighterError::BattleNotAccepted)?;
-            Clock::get()?.slot > accepted_slot + RESOLVE_DELAY_SLOTS
-        } @ FighterError::BattleNotReadyToResolve,
     )]
     pub battle: Box<Account<'info, Battle>>,
 
@@ -178,6 +173,17 @@ impl<'info> ResolveBattle<'info> {
 }
 
 pub fn resolve_battle(ctx: Context<ResolveBattle>) -> Result<()> {
+    // Slot delay guard
+    let accepted_slot = ctx
+        .accounts
+        .battle
+        .accepted_slot
+        .ok_or(FighterError::BattleNotAccepted)?;
+    require!(
+        Clock::get()?.slot > accepted_slot + RESOLVE_DELAY_SLOTS,
+        FighterError::BattleNotReadyToResolve
+    );
+
     let battle_mode = ctx.accounts.battle.battle_mode;
     let battle_bump = ctx.accounts.battle.bump;
     let signer_nft = ctx.accounts.battle.signer_nft;

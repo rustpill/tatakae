@@ -23,9 +23,9 @@ pub struct CreateBattle<'info> {
     #[account(
         mut,
         // Check ownership of NFT matches
-        associated_token::authority = signer.key(),
+        associated_token::authority = signer,
         // Check the token accounts mint is the same as the NFT mint
-        associated_token::mint = signer_mint.key(),
+        associated_token::mint = signer_mint,
         // Check if valid NFT count
         constraint = signer_token_account.amount == 1 @ FighterError::InvalidNFTMint,
     )]

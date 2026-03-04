@@ -28,9 +28,9 @@ pub struct AcceptBattle<'info> {
     #[account(
         mut,
         // Check ownership of NFT matches
-        associated_token::authority = opponent.key(),
+        associated_token::authority = opponent,
         // Check the token accounts mint is the same as the NFT mint
-        associated_token::mint = opponent_mint.key(),
+        associated_token::mint = opponent_mint,
         // Check the token accounts mint is not the same as the NFT already in the battle
         constraint = opponent_token_account.mint != battle.signer_nft @ FighterError::InvalidNFTMint,
         // Check if valid NFT count
@@ -74,7 +74,6 @@ pub struct AcceptBattle<'info> {
 
     /// Required for signers_opponent_ata
     #[account(
-        mut,
         address = battle.signer
     )]
     pub battle_signer: SystemAccount<'info>,
@@ -134,8 +133,9 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
 
     // If this is a targeted battle, validate the opponent matches
     if let Some(expected_opponent) = ctx.accounts.battle.opponent {
-        require!(
-            expected_opponent == ctx.accounts.opponent.key(),
+        require_keys_eq!(
+            expected_opponent,
+            ctx.accounts.opponent.key(),
             FighterError::InvalidOpponent
         );
     }
