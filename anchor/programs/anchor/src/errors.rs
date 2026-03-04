@@ -47,4 +47,10 @@ pub enum FighterError {
 
     #[msg("Unauthorized instruction")]
     Unauthorized,
+
+    #[msg("Battle cannot be resolved yet")]
+    BattleNotReadyToResolve,
+
+    #[msg("Fighter power cannot be zero")]
+    ZeroPowerFighter,
 }

@@ -23,6 +23,8 @@ pub struct Battle {
     pub created_at: i64,
     pub accepted_at: Option<i64>,
 
+    pub accepted_slot: Option<u64>,
+
     pub random_seed: Option<u64>,
     pub winner: Option<Pubkey>,
 

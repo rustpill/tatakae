@@ -55,6 +55,11 @@ pub mod anchor {
         Ok(())
     }
 
+    pub fn resolve_battle(ctx: Context<ResolveBattle>) -> Result<()> {
+        handlers::resolve_battle(ctx)?;
+        Ok(())
+    }
+
     pub fn cancel_battle(ctx: Context<CancelBattle>) -> Result<()> {
         handlers::cancel_battle(ctx)?;
         Ok(())

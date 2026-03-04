@@ -24,3 +24,5 @@ pub const CONFIG_SEED: &[u8] = b"config";
 
 /// Used in initialize_config
 pub const PROGRAM_AUTHORITY: Pubkey = pubkey!("2QZvzZ4XszjtBiPKMy7wb3YZ4EwbRTovbDki99c4Cr87");
+
+pub const RESOLVE_DELAY_SLOTS: u64 = 2;

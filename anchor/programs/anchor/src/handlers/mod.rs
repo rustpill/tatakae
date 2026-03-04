@@ -5,6 +5,7 @@ pub mod accept_battle;
 pub use accept_battle::*;
 
 pub mod resolve_battle;
+pub use resolve_battle::*;
 
 pub mod initialize_fighter;
 pub use initialize_fighter::*;

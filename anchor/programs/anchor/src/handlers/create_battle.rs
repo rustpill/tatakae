@@ -60,7 +60,7 @@ pub struct CreateBattle<'info> {
 
 impl<'info> CreateBattle<'info> {
     /// Transfer fighter NFT from signer to escrow
-    pub fn transfer_to_escrow(&self) -> Result<()> {
+    pub fn transfer_to_signer_escrow(&self) -> Result<()> {
         let cpi_accounts = Transfer {
             from: self.signer_token_account.to_account_info(),
             to: self.signer_escrow.to_account_info(),
@@ -116,12 +116,13 @@ pub fn create_battle(
     battle.max_power = max_power;
     battle.created_at = clock.unix_timestamp;
     battle.accepted_at = None;
+    battle.accepted_slot = None;
     battle.random_seed = None;
     battle.winner = None;
     battle.bump = ctx.bumps.battle;
 
     // Transfer fighter NFT to escrow
-    ctx.accounts.transfer_to_escrow()?;
+    ctx.accounts.transfer_to_signer_escrow()?;
 
     // Emit event
     emit!(BattleCreated {

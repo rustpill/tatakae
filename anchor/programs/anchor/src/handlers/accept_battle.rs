@@ -35,17 +35,8 @@ pub struct AcceptBattle<'info> {
         constraint = opponent_token_account.mint != battle.signer_nft @ FighterError::InvalidNFTMint,
         // Check if valid NFT count
         constraint = opponent_token_account.amount == 1 @ FighterError::InvalidNFTMint,
-        
     )]
     pub opponent_token_account: Box<Account<'info, TokenAccount>>,
-
-    /// Signers NFT token account, load from the battle passed in
-    #[account(
-        mut,
-        associated_token::mint = battle.signer_nft,
-        associated_token::authority = battle.signer,
-    )]
-    pub signer_token_account: Box<Account<'info, TokenAccount>>,
 
     /// Create escrow for the Opponents NFT
     #[account(
@@ -59,19 +50,9 @@ pub struct AcceptBattle<'info> {
     )]
     pub opponent_escrow: Box<Account<'info, TokenAccount>>,
 
-    /// Signers escrow holding their NFT
-    #[account(
-        mut,
-        seeds = [ESCROW_SEED, battle.key().as_ref(), battle.signer_nft.as_ref()],
-        bump,
-    )]
-    pub signer_escrow: Box<Account<'info, TokenAccount>>,
-
     /// Battle PDA
     #[account(
         mut,
-        // Close battle pda at the end
-        close = battle_signer,
         // Cannot accept a pending battle
         constraint = battle.status == BattleStatus::Pending @ FighterError::BattleNotPending,
     )]
@@ -93,7 +74,7 @@ pub struct AcceptBattle<'info> {
     )]
     pub opponent_fighter: Box<Account<'info, Fighter>>,
 
-    /// Required for signers_opponent_ata and for closing account
+    /// Required for signers_opponent_ata
     #[account(
         mut,
         address = battle.signer
@@ -130,16 +111,11 @@ pub struct AcceptBattle<'info> {
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
-
-    /// CHECK: SlotHashes sysvar
-    /// Used for randominity
-    #[account(address = anchor_lang::solana_program::sysvar::slot_hashes::ID)]
-    pub slot_hashes: UncheckedAccount<'info>,
 }
 
 impl<'info> AcceptBattle<'info> {
     /// Transfer Opponents NFT to opponent escrow
-    pub fn transfer_to_escrow(&self) -> Result<()> {
+    pub fn transfer_to_opponent_escrow(&self) -> Result<()> {
         let cpi_accounts = Transfer {
             from: self.opponent_token_account.to_account_info(),
             to: self.opponent_escrow.to_account_info(),
@@ -150,30 +126,6 @@ impl<'info> AcceptBattle<'info> {
 
         token::transfer(cpi_ctx, 1)?;
 
-        Ok(())
-    }
-
-    /// Transfer NFT from an escrow to destination
-    pub fn transfer_from_escrow(
-        &self,
-        escrow: &Account<'info, TokenAccount>,
-        destination: &Account<'info, TokenAccount>,
-        battle_seeds: &[&[u8]],
-    ) -> Result<()> {
-        let cpi_accounts = Transfer {
-            from: escrow.to_account_info(),
-            to: destination.to_account_info(),
-            authority: self.battle.to_account_info(),
-        };
-
-        let binding = [battle_seeds];
-        let cpi_ctx = CpiContext::new_with_signer(
-            self.token_program.to_account_info(),
-            cpi_accounts,
-            &binding,
-        );
-
-        token::transfer(cpi_ctx, 1)?;
         Ok(())
     }
 }
@@ -211,167 +163,34 @@ pub fn accept_battle(ctx: Context<AcceptBattle>) -> Result<()> {
         }
     }
 
-    // Update battle state with opponent info
-    ctx.accounts.battle.opponent = Some(ctx.accounts.opponent.key());
-    ctx.accounts.battle.opponent_nft = Some(ctx.accounts.opponent_mint.key());
-    ctx.accounts.battle.accepted_at = Some(clock.unix_timestamp);
-
     // Transfer opponents NFT to opponent escrow
-    ctx.accounts.transfer_to_escrow()?;
+    ctx.accounts.transfer_to_opponent_escrow()?;
 
-    // RESOLVE BATTLE LOGIC
-
-    // Get power stats
-    let signer_power = ctx.accounts.signer_fighter.power;
-    let opponent_power = ctx.accounts.opponent_fighter.power;
-
-    // 0 guard
-    require!(
-        signer_power > 0 && opponent_power > 0,
-        FighterError::InvalidPowerRange
-    );
-
-    // Get randomness
-    let random_value = crate::handlers::resolve_battle::get_random_u64(
-        &ctx.accounts.slot_hashes,
-        &ctx.accounts.battle.key(),
-    )?;
-
-    // Resolve logic
-    let total_power = signer_power as u64 + opponent_power as u64;
-    let signer_wins = (random_value % total_power) < signer_power as u64;
-
-    // Snapshot values
-    let battle_mode = ctx.accounts.battle.battle_mode;
-    let battle_bump = ctx.accounts.battle.bump;
-    let signer_nft = ctx.accounts.battle.signer_nft;
-    let opponent_nft = ctx.accounts.battle.opponent_nft;
-    let signer_pubkey = ctx.accounts.battle.signer;
-    let opponent_pubkey = ctx.accounts.battle.opponent.unwrap();
-    let battle_seeds = &[BATTLE_SEED, signer_nft.as_ref(), &[battle_bump]];
-
-    // Resolve battle mode
-    match &battle_mode {
-        // Transfer NFT to winning accounts
-        crate::state::BattleMode::PinkSlip => {
-            if signer_wins {
-                ctx.accounts.transfer_from_escrow(
-                    &ctx.accounts.signer_escrow,
-                    &ctx.accounts.signer_token_account,
-                    battle_seeds,
-                )?;
-                ctx.accounts.transfer_from_escrow(
-                    &ctx.accounts.opponent_escrow,
-                    &ctx.accounts.signers_opponent_ata,
-                    battle_seeds,
-                )?;
-                ctx.accounts.battle.winner = Some(signer_pubkey);
-            } else {
-                ctx.accounts.transfer_from_escrow(
-                    &ctx.accounts.signer_escrow,
-                    &ctx.accounts.opponents_signer_ata,
-                    battle_seeds,
-                )?;
-                ctx.accounts.transfer_from_escrow(
-                    &ctx.accounts.opponent_escrow,
-                    &ctx.accounts.opponent_token_account,
-                    battle_seeds,
-                )?;
-                ctx.accounts.battle.winner = Some(opponent_pubkey);
-            }
-        }
-        // Return NFTs back to owners, apply bite penalty
-        crate::state::BattleMode::Bite => {
-            if signer_wins {
-                // Change winner in Battle PDA
-                ctx.accounts.battle.winner = Some(signer_pubkey);
-                // Bite amount
-                let bite_amount = ctx.accounts.opponent_fighter.power / 5;
-                // Append 20% of opponents fighter power
-                ctx.accounts.signer_fighter.power = ctx
-                    .accounts
-                    .signer_fighter
-                    .power
-                    .saturating_add(bite_amount);
-                // Remove 20% of opponents fighter power
-                ctx.accounts.opponent_fighter.power = ctx
-                    .accounts
-                    .opponent_fighter
-                    .power
-                    .saturating_sub(bite_amount);
-                // Emit Battle results
-                emit!(crate::handlers::resolve_battle::BattleBiteResult {
-                    battle: ctx.accounts.battle.key(),
-                    loser_nft: opponent_nft.unwrap(),
-                    winner_nft: signer_nft,
-                    winner_new_power: ctx.accounts.signer_fighter.power,
-                    loser_new_power: ctx.accounts.opponent_fighter.power
-                });
-            } else {
-                // Change winner in Battle PDA
-                ctx.accounts.battle.winner = Some(opponent_pubkey);
-                // Bite amount
-                let bite_amount = ctx.accounts.signer_fighter.power / 5;
-                // Append 20% of signers fighter power
-                ctx.accounts.opponent_fighter.power = ctx
-                    .accounts
-                    .opponent_fighter
-                    .power
-                    .saturating_add(bite_amount);
-                // Remove 20% of signers fighter power
-                ctx.accounts.signer_fighter.power = ctx
-                    .accounts
-                    .signer_fighter
-                    .power.saturating_sub(bite_amount);
-                // Emit Battle results
-                emit!(crate::handlers::resolve_battle::BattleBiteResult {
-                    battle: ctx.accounts.battle.key(),
-                    loser_nft: signer_nft,
-                    winner_nft: opponent_nft.unwrap(),
-                    winner_new_power: ctx.accounts.opponent_fighter.power,
-                    loser_new_power: ctx.accounts.signer_fighter.power
-                });
-            }
-
-            ctx.accounts.transfer_from_escrow(
-                &ctx.accounts.signer_escrow,
-                &ctx.accounts.signer_token_account,
-                battle_seeds,
-            )?;
-            ctx.accounts.transfer_from_escrow(
-                &ctx.accounts.opponent_escrow,
-                &ctx.accounts.opponent_token_account,
-                battle_seeds,
-            )?;
-        }
-    }
-
-    // Update battle state
-    ctx.accounts.battle.signer_power = Some(signer_power);
-    ctx.accounts.battle.opponent_power = Some(opponent_power);
-    ctx.accounts.battle.random_seed = Some(random_value);
-    ctx.accounts.battle.status = crate::state::BattleStatus::Completed;
-
-    // Update fighter stats
-    if signer_wins {
-        ctx.accounts.signer_fighter.record_win();
-        ctx.accounts.opponent_fighter.record_loss();
-    } else {
-        ctx.accounts.signer_fighter.record_loss();
-        ctx.accounts.opponent_fighter.record_win();
-    }
+    // Update battle state with opponent info
+    let battle = &mut ctx.accounts.battle;
+    battle.opponent = Some(ctx.accounts.opponent.key());
+    battle.opponent_nft = Some(ctx.accounts.opponent_mint.key());
+    battle.accepted_at = Some(clock.unix_timestamp);
+    battle.accepted_slot = Some(clock.slot);
+    battle.status = BattleStatus::Accepted;
 
     // Emit event
-    emit!(crate::handlers::resolve_battle::BattleResolved {
-        battle: ctx.accounts.battle.key(),
-        winner: ctx.accounts.battle.winner.unwrap(),
-        battle_mode,
-        signer_fighter: signer_nft,
-        opponent_fighter: opponent_nft.unwrap(),
-        signer_power,
-        opponent_power,
-        random_seed: random_value,
+    emit!(BattleAccepted {
+        battle: battle.key(),
+        signer_nft: battle.signer_nft,
+        opponent: ctx.accounts.opponent.key(),
+        opponent_nft: ctx.accounts.opponent_mint.key(),
+        accepted_slot: clock.slot,
     });
 
     Ok(())
+}
+
+#[event]
+pub struct BattleAccepted {
+    pub battle: Pubkey,
+    pub signer_nft: Pubkey,
+    pub opponent: Pubkey,
+    pub opponent_nft: Pubkey,
+    pub accepted_slot: u64,
 }

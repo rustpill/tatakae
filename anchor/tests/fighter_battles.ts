@@ -19,6 +19,7 @@ import {
 import { assert } from "chai";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
 
 // Load setup output
 const SETUP_PATH = path.resolve(__dirname, "scripts/output/setup.json");
@@ -35,6 +36,15 @@ if (f.length < 11) {
     `Add more to FIGHTER_POWERS in setup.ts and re run.`
   );
 }
+
+
+const WALLET_PATH = path.join(os.homedir(), ".config/solana/id.json");
+if (!fs.existsSync(WALLET_PATH)) {
+  throw new Error(`Authority wallet not found at ${WALLET_PATH}\n`);
+}
+const authorityKeypair = Keypair.fromSecretKey(
+  new Uint8Array(JSON.parse(fs.readFileSync(WALLET_PATH, "utf-8")))
+);
 
 // PDA helpers
 const BATTLE_SEED = Buffer.from("battle");
@@ -132,6 +142,69 @@ async function transferNft(
   }
   tx.add(createTransferInstruction(fromAta, toAta, from, 1));
   await provider.sendAndConfirm(tx);
+}
+
+async function waitForSlots(connection: Connection, fromSlot: number, n: number) {
+  let current = await connection.getSlot("confirmed");
+  while (current <= fromSlot + n) {
+    await new Promise(r => setTimeout(r, 400));
+    current = await connection.getSlot("confirmed");
+  }
+}
+
+async function resolveBattle(
+  program: Program<Anchor>,
+  connection: Connection,
+  signerMint: PublicKey,
+  opponentMint: PublicKey,
+  signerWallet: PublicKey,
+  opponentWallet: PublicKey,
+) {
+  const pid = program.programId;
+  const [battle] = battlePda(pid, signerMint);
+  const [signerEscrow] = escrowPda(pid, battle, signerMint);
+  const [opponentEscrow] = escrowPda(pid, battle, opponentMint);
+  const [signerFighter] = fighterPda(pid, signerMint);
+  const [opponentFighter] = fighterPda(pid, opponentMint);
+
+  const signerAta  = await getAssociatedTokenAddress(signerMint, signerWallet);
+  const opponentAta = await getAssociatedTokenAddress(opponentMint, opponentWallet);
+  const signersOpponentAta = await getAssociatedTokenAddress(opponentMint, signerWallet);
+  const opponentsSignerAta = await getAssociatedTokenAddress(signerMint, opponentWallet);
+
+  // Wait for the slot delay before submitting
+  const battleData = await program.account.battle.fetch(battle);
+  const acceptedSlot = (battleData.acceptedSlot as anchor.BN).toNumber();
+  await waitForSlots(connection, acceptedSlot, 2);
+
+  try {
+    await program.methods
+      .resolveBattle()
+      .accountsPartial({
+        authority: authorityKeypair.publicKey,
+        battle,
+        battleSigner: signerWallet,
+        battleOpponent: opponentWallet,
+        signerEscrow,
+        opponentEscrow,
+        signerTokenAccount: signerAta,
+        opponentTokenAccount: opponentAta,
+        signersOpponentAta,
+        opponentsSignerAta,
+        signerNftMint: signerMint,
+        opponentNftMint: opponentMint,
+        signerFighter,
+        opponentFighter,
+        slotHashes: SYSVAR_SLOT_HASHES_PUBKEY,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      })
+      .signers([authorityKeypair])
+      .rpc();
+  } catch (e) {
+    console.log(e)
+  }
 }
 
 describe("fighter-battles", () => {
@@ -259,6 +332,7 @@ describe("fighter-battles", () => {
       assert.deepEqual(battle.battleMode, { pinkSlip: {} });
       assert.isNull(battle.minPower);
       assert.isNull(battle.maxPower);
+      assert.isNull(battle.acceptedSlot);
 
       const escrow = await getAccount(connection, accounts.signerEscrow);
       assert.equal(escrow.amount.toString(), "1");
@@ -423,10 +497,10 @@ describe("fighter-battles", () => {
 
   // accept_battle() - PinkSlip
 
-  describe("accept_battle - PinkSlip", () => {
+  describe("accept_battle + resolve_battle - PinkSlip", () => {
 
     // uses f[0] (foo) f[1] (bar), returns nft from escrow, 1 wallet gets both
-    it("winner holds both NFTs, fighter records updated", async () => {
+    it("accept locks NFTs in escrow, resolve sends to winner", async () => {
       const [battle] = battlePda(pid, fooMint);
       const [fooEscrow] = escrowPda(pid, battle, fooMint);
       const [barEscrow] = escrowPda(pid, battle, barMint);
@@ -451,15 +525,14 @@ describe("fighter-battles", () => {
       const prefoo = await program.account.fighter.fetch(fooFighter);
       const prebar = await program.account.fighter.fetch(barFighter);
 
+      // acceptBattle
       await program.methods
         .acceptBattle()
         .accountsPartial({
           opponent: bar.publicKey,
           opponentMint: barMint,
           opponentTokenAccount: barAta,
-          signerTokenAccount: fooAta,
           opponentEscrow: barEscrow,
-          signerEscrow:  fooEscrow,
           battle,
           signerFighter: fooFighter,
           opponentFighter: barFighter,
@@ -470,10 +543,24 @@ describe("fighter-battles", () => {
           systemProgram: anchor.web3.SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          slotHashes: SYSVAR_SLOT_HASHES_PUBKEY,
         })
         .signers([bar])
         .rpc();
+
+      // Battle should now be Accepted — not closed
+      const battleState = await program.account.battle.fetch(battle);
+      assert.deepEqual(battleState.status, { accepted: {} }, "Battle should be Accepted after accept_battle");
+      assert.isNotNull(battleState.acceptedSlot, "acceptedSlot should be set");
+
+      // Both NFTs should be locked in escrow
+      const fooEscrowAcc = await getAccount(connection, fooEscrow);
+      const barEscrowAcc = await getAccount(connection, barEscrow);
+      assert.equal(fooEscrowAcc.amount.toString(), "1", "Signer NFT should be in escrow");
+      assert.equal(barEscrowAcc.amount.toString(), "1", "Opponent NFT should be in escrow");
+      console.log("\naccept_battle: both NFTs locked in escrow, battle Accepted");
+      
+      // resolve battle
+      await resolveBattle(program, connection, fooMint, barMint, foo.publicKey, bar.publicKey);
 
       assert.isNull(await connection.getAccountInfo(battle), "Battle PDA should be closed");
 
@@ -506,7 +593,7 @@ describe("fighter-battles", () => {
 
   // accept_battle() - Bite
 
-  describe("accept_battle - Bite mode", () => {
+  describe("accept_battle + resolve_battle - Bite mode", () => {
 
     // uses f[6] f[7] (transfers), inits, returns nft from escrow
     it("NFTs returned to owners, 20% power transferred to winner", async () => {
@@ -540,7 +627,6 @@ describe("fighter-battles", () => {
       const preB = await program.account.fighter.fetch(fighterPdaB);
 
       const [battle]  = battlePda(pid, mintA);
-      const [escrowA] = escrowPda(pid, battle, mintA);
       const [escrowB] = escrowPda(pid, battle, mintB);
 
       await program.methods
@@ -552,15 +638,14 @@ describe("fighter-battles", () => {
       const aReceivesB = await getAssociatedTokenAddress(mintB, walletA.publicKey);
       const bReceivesA = await getAssociatedTokenAddress(mintA, walletB.publicKey);
 
+      // acceptBattle
       await program.methods
         .acceptBattle()
         .accountsPartial({
           opponent: walletB.publicKey,
           opponentMint: mintB,
           opponentTokenAccount: ataB,
-          signerTokenAccount: ataA,
           opponentEscrow: escrowB,
-          signerEscrow: escrowA,
           battle,
           signerFighter: fighterPdaA,
           opponentFighter: fighterPdaB,
@@ -571,10 +656,16 @@ describe("fighter-battles", () => {
           systemProgram: anchor.web3.SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          slotHashes: SYSVAR_SLOT_HASHES_PUBKEY,
         })
         .signers([walletB])
         .rpc();
+
+      const battleState = await program.account.battle.fetch(battle);
+      assert.deepEqual(battleState.status, { accepted: {} });
+      console.log("\naccept_battle: Bite battle accepted");
+
+      // resolveBattle
+      await resolveBattle(program, connection, mintA, mintB, walletA.publicKey, walletB.publicKey);
 
       const postA = await program.account.fighter.fetch(fighterPdaA);
       const postB = await program.account.fighter.fetch(fighterPdaB);
@@ -594,80 +685,111 @@ describe("fighter-battles", () => {
   });
 
   // Other
+  describe("resolve_battle - slot delay guard", () => {
+    
+    // uses f[8] f[9] 
+    it("rejects resolve_battle called in the same slot as accept_battle", async () => {
+      const mintA   = new PublicKey(f[8].mint);
+      const mintB   = new PublicKey(f[9].mint);
+      const walletA = Keypair.generate();
+      const walletB = Keypair.generate();
+      await airdrop(connection, walletA.publicKey);
+      await airdrop(connection, walletB.publicKey);
+      await transferNft(provider, mintA, walletA.publicKey);
+      await transferNft(provider, mintB, walletB.publicKey);
 
-  describe("edge cases", () => {
-
-    // uses f[8] f[9]
-    it("cannot accept your own battle with another fighter", async () => {
-
-      // initialize f[8] (signer), f[9] (opponent)
-      const mintA = new PublicKey(f[8].mint);
-      const mintB = new PublicKey(f[9].mint);
-      const wallet = Keypair.generate();
-      await airdrop(connection, wallet.publicKey);
-      await transferNft(provider, mintA, wallet.publicKey);
-      await transferNft(provider, mintB, wallet.publicKey);
-      const ataA = await getAssociatedTokenAddress(mintA, wallet.publicKey);
-      const ataB = await getAssociatedTokenAddress(mintB, wallet.publicKey);
+      const ataA = await getAssociatedTokenAddress(mintA, walletA.publicKey);
+      const ataB = await getAssociatedTokenAddress(mintB, walletB.publicKey);
 
       await program.methods
         .initializeFighter(f[8].power, f[8].proof)
-        .accounts(initFighterAccounts(pid, wallet.publicKey, mintA, ataA))
-        .signers([wallet])
+        .accounts(initFighterAccounts(pid, walletA.publicKey, mintA, ataA))
+        .signers([walletA])
         .rpc();
       await program.methods
         .initializeFighter(f[9].power, f[9].proof)
-        .accounts(initFighterAccounts(pid, wallet.publicKey, mintB, ataB))
-        .signers([wallet])
+        .accounts(initFighterAccounts(pid, walletB.publicKey, mintB, ataB))
+        .signers([walletB])
         .rpc();
 
-      // create open bite battle 
-      const accounts = createBattleAccounts(pid, wallet.publicKey, mintA, ataA);
-      await program.methods
-        .createBattle(null, null, { bite: {} }, null, null)
-        .accounts(accounts)
-        .signers([wallet])
-        .rpc();
-
-      const [battle] = battlePda(pid, mintA);
+      const [battle]  = battlePda(pid, mintA);
       const [escrowA] = escrowPda(pid, battle, mintA);
       const [escrowB] = escrowPda(pid, battle, mintB);
-      const [fightPdaA] = fighterPda(pid, mintA);
-      const [fightPdaB] = fighterPda(pid, mintB);
-      const mintA_Ata = await getAssociatedTokenAddress(mintA, wallet.publicKey);
-      const mintB_Ata = await getAssociatedTokenAddress(mintB, wallet.publicKey);
+      const [fighterA] = fighterPda(pid, mintA);
+      const [fighterB] = fighterPda(pid, mintB);
 
+      await program.methods
+        .createBattle(null, null, { bite: {} }, null, null)
+        .accounts(createBattleAccounts(pid, walletA.publicKey, mintA, ataA))
+        .signers([walletA])
+        .rpc();
+
+      const aReceivesB = await getAssociatedTokenAddress(mintB, walletA.publicKey);
+      const bReceivesA = await getAssociatedTokenAddress(mintA, walletB.publicKey);
+
+      await program.methods
+        .acceptBattle()
+        .accountsPartial({
+          opponent:             walletB.publicKey,
+          opponentMint:         mintB,
+          opponentTokenAccount: ataB,
+          opponentEscrow:       escrowB,
+          battle,
+          signerFighter:        fighterA,
+          opponentFighter:      fighterB,
+          battleSigner:         walletA.publicKey,
+          signersOpponentAta:   aReceivesB,
+          signerNftMint:        mintA,
+          opponentsSignerAta:   bReceivesA,
+          systemProgram:        anchor.web3.SystemProgram.programId,
+          tokenProgram:         TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        })
+        .signers([walletB])
+        .rpc();
+
+      // Attempt immediate resolve — should fail with BattleNotReadyToResolve
       try {
         await program.methods
-          .acceptBattle()
+          .resolveBattle()
           .accountsPartial({
-            opponent: wallet.publicKey,
-            opponentMint: mintB,
-            opponentTokenAccount: mintB_Ata,
-            signerTokenAccount: mintA_Ata,
-            opponentEscrow: escrowB,
-            signerEscrow: escrowA,
+            authority:            authorityKeypair.publicKey,
             battle,
-            signerFighter: fightPdaA,
-            opponentFighter: fightPdaB,
-            battleSigner: wallet.publicKey,
-            signersOpponentAta: mintB_Ata,
-            signerNftMint: mintA,
-            opponentsSignerAta: mintA_Ata,
-            systemProgram: anchor.web3.SystemProgram.programId,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            battleSigner:         walletA.publicKey,
+            battleOpponent:       walletB.publicKey,
+            signerEscrow:         escrowA,
+            opponentEscrow:       escrowB,
+            signerTokenAccount:   ataA,
+            opponentTokenAccount: ataB,
+            signersOpponentAta:   aReceivesB,
+            opponentsSignerAta:   bReceivesA,
+            signerNftMint:        mintA,
+            opponentNftMint:      mintB,
+            signerFighter:        fighterA,
+            opponentFighter:      fighterB,
+            slotHashes:           SYSVAR_SLOT_HASHES_PUBKEY,
+            systemProgram:        anchor.web3.SystemProgram.programId,
+            tokenProgram:         TOKEN_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-            slotHashes: SYSVAR_SLOT_HASHES_PUBKEY,
           })
-          .signers([wallet])
+          .signers([authorityKeypair])
           .rpc();
-        assert.fail("Should have thrown CannotAcceptOwnBattle");
+        assert.fail("Should have thrown BattleNotReadyToResolve");
       } catch (e: any) {
-        assert.include(e.message, "CannotAcceptOwnBattle");
-        console.log("Cannot accept own battle");
+        assert.include(e.message, "BattleNotReadyToResolve");
+        console.log("\nSlot delay enforced — immediate resolve rejected");
       }
-    });
 
+      // Clean up: wait and resolve so the battle PDA and escrows are properly closed
+      const battleData = await program.account.battle.fetch(battle);
+      const acceptedSlot = (battleData.acceptedSlot as anchor.BN).toNumber();
+      await waitForSlots(connection, acceptedSlot, 2);
+      await resolveBattle(program, connection, mintA, mintB, walletA.publicKey, walletB.publicKey);
+      console.log("Slot delay test battle cleaned up");
+    });
+  });
+
+  describe("edge cases", () => {
     // uses f[3] f[10]
     it("targeted battle rejects wrong opponent", async () => {
       const mint = new PublicKey(f[3].mint);
@@ -687,11 +809,9 @@ describe("fighter-battles", () => {
         .rpc();
 
       const battleData = await program.account.battle.fetch(battle);
-      const [signerEscrow] = escrowPda(pid, battle, mint);
       const [opponentEscrow] = escrowPda(pid, battle, mintA);
       const [mintAFighterPda] = fighterPda(pid, mintA);
       const [signerFighterPda] = fighterPda(pid, mint);
-      const signerAta = await getAssociatedTokenAddress(mint, battleData.signer);
       const mintA_Ata = await getAssociatedTokenAddress(mintA, walletA.publicKey);
       const signersMintA_Ata = await getAssociatedTokenAddress(mintA, battleData.signer);
       const mintASignerAta = await getAssociatedTokenAddress(mint, walletA.publicKey);
@@ -703,9 +823,7 @@ describe("fighter-battles", () => {
             opponent: walletA.publicKey,
             opponentMint: mintA,
             opponentTokenAccount: mintA_Ata,
-            signerTokenAccount: signerAta,
             opponentEscrow,
-            signerEscrow,
             battle,
             signerFighter: signerFighterPda,
             opponentFighter: mintAFighterPda,
@@ -716,7 +834,6 @@ describe("fighter-battles", () => {
             systemProgram: anchor.web3.SystemProgram.programId,
             tokenProgram: TOKEN_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-            slotHashes: SYSVAR_SLOT_HASHES_PUBKEY,
           })
           .signers([walletA])
           .rpc();

@@ -8,7 +8,7 @@ pub struct InitializeConfig<'info> {
     #[account(
     mut,
     // Only program can call
-    constraint = authority.key() == PROGRAM_AUTHORITY @ FighterError::Unauthorized
+    address = PROGRAM_AUTHORITY @ FighterError::Unauthorized,
     )]
     pub authority: Signer<'info>,
 
