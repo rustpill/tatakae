@@ -95,6 +95,13 @@ pub fn create_battle(
         FighterError::InvalidOpponentDeclaration
     );
 
+    // Nullify power constraints if opponent nft specified
+    let (min_power, max_power) = if opponent_nft.is_some() {
+        (None, None)
+    } else {
+        (min_power, max_power)
+    };
+
     // Cannot challenge yourself
     if let Some(opponent_pubkey) = opponent {
         require!(
