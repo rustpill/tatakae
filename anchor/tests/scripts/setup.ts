@@ -19,6 +19,9 @@ import { keccak_256 } from "@noble/hashes/sha3.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import * as dotenv from "dotenv";
+dotenv.config({ path: path.resolve(__dirname, "../../.env.local") });
 
 const RPC_URL = "http://127.0.0.1:8899";
 
@@ -30,6 +33,39 @@ const IDL_PATH    = path.resolve(__dirname, "../../target/idl/anchor.json");
 const OUTPUT_DIR  = path.resolve(__dirname, "output");
 const OUTPUT_PATH = path.join(OUTPUT_DIR, "setup.json");
 const CONFIG_SEED = Buffer.from("config");
+
+// R2 upload function
+const s3 = new S3Client({
+  region: "auto",
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  },
+});
+
+async function uploadMetadataToR2(mint: string, index: number, power: number) {
+  const body = JSON.stringify({
+    name: `Fighter #${index + 1}`,
+    symbol: "FGT",
+    description: "A Tatakae fighter NFT",
+    image: `${process.env.R2_PUBLIC_URL}/images/${mint}.png`,
+    attributes: [
+      { trait_type: "Power", value: power },
+      { trait_type: "Wins", value: 0 },
+      { trait_type: "Losses", value: 0 },
+    ],
+  });
+
+  await s3.send(new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: `metadata/${mint}.json`,
+    Body: body,
+    ContentType: "application/json",
+  }));
+
+  return `${process.env.R2_PUBLIC_URL}/metadata/${mint}.json`;
+}
 
 // Merkle root helpers
 function computeLeaf(mint: PublicKey, power: number): Buffer {
@@ -84,164 +120,218 @@ function printSummary(output: any) {
   });
 }
 
-// ─── MAIN ─────────────────────────────────────────────────────────────────────
+// MAIN
 
 async function main() {
-  // Validate paths
-  if (!fs.existsSync(WALLET_PATH)) {
-    throw new Error(`Wallet not found at ${WALLET_PATH}\n`);
-  }
-  if (!fs.existsSync(IDL_PATH)) {
-    throw new Error(
-      `IDL not found at ${IDL_PATH}\n`
+// Validate paths
+if (!fs.existsSync(WALLET_PATH)) {
+  throw new Error(`Wallet not found at ${WALLET_PATH}\n`);
+}
+if (!fs.existsSync(IDL_PATH)) {
+  throw new Error(
+    `IDL not found at ${IDL_PATH}\n`
+  );
+}
+
+// Load keypair
+const walletJson = JSON.parse(fs.readFileSync(WALLET_PATH, "utf-8"));
+const keypair    = Keypair.fromSecretKey(new Uint8Array(walletJson));
+console.log(`Wallet: ${keypair.publicKey.toBase58()}`);
+
+// Load IDL
+const idl = JSON.parse(fs.readFileSync(IDL_PATH, "utf-8"));
+
+// Providers
+const connection = new Connection(RPC_URL, "confirmed");
+const provider   = new AnchorProvider(connection, new Wallet(keypair), {
+  commitment: "confirmed",
+});
+anchor.setProvider(provider);
+const program = new Program(idl, provider);
+
+// UMI instance
+const umi        = createUmi(RPC_URL).use(mplTokenMetadata());
+const umiKeypair = umi.eddsa.createKeypairFromSecretKey(keypair.secretKey);
+umi.use(keypairIdentity(umiKeypair));
+
+// Airdrop
+const sig = await connection.requestAirdrop(keypair.publicKey, 1e9);
+const latestBlockhash = await connection.getLatestBlockhash();
+await connection.confirmTransaction({
+  signature: sig,
+  blockhash: latestBlockhash.blockhash,
+  lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+}, "confirmed");
+
+// Verify output dir exists
+if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+// Create Collection
+console.log("Creating Collection\n");
+const collectionSigner = generateSigner(umi);
+
+await createNft(umi, {
+  mint: collectionSigner,
+  name: "Tatakaes",
+  symbol: "KAE",
+  uri: "https://tatakae.com/collection.json",
+  sellerFeeBasisPoints: percentAmount(0),
+  isCollection: true,
+}).sendAndConfirm(umi);
+
+const collectionMint = new PublicKey(collectionSigner.publicKey.toString());
+console.log(`Collection ID: ${collectionMint.toBase58()}\n`);
+
+// Minting NFTs
+console.log("Minting NFTs\n");
+
+const fighters = await Promise.all(
+  FIGHTER_POWERS.map(async (power, i) => {
+    // Each fighter gets its own UMI
+    const umiInstance = createUmi(RPC_URL).use(mplTokenMetadata());
+    umiInstance.use(keypairIdentity(umiKeypair));
+
+    const mintSigner = generateSigner(umiInstance);
+
+    // upload metadata
+    const uri = await uploadMetadataToR2(
+      mintSigner.publicKey.toString(), i, power
     );
+
+    await transactionBuilder()
+      .add(createNft(umiInstance, {
+        mint: mintSigner,
+        name: `Fighter #${i + 1}`,
+        symbol: "FGT",
+        uri,
+        sellerFeeBasisPoints: percentAmount(0),
+        collection: { key: collectionSigner.publicKey, verified: false },
+      }))
+      .add(verifyCollectionV1(umiInstance, {
+        metadata: findMetadataPda(umiInstance, { mint: mintSigner.publicKey }),
+        collectionMint: collectionSigner.publicKey,
+        collectionMetadata: findMetadataPda(umiInstance, { mint: collectionSigner.publicKey }),
+        collectionMasterEdition: findMasterEditionPda(umiInstance, { mint: collectionSigner.publicKey }),
+        authority: umiInstance.identity,
+      }))
+      .sendAndConfirm(umiInstance);
+    return { mint: mintSigner.publicKey.toString(), power };
+  })
+);
+
+// Gen merkle proof for minted NFTs
+const leaves = fighters.map(f => computeLeaf(new PublicKey(f.mint), f.power));
+const layers = buildTree(leaves);
+const root   = layers[layers.length - 1][0];
+
+// Verify all proofs locally
+for (let i = 0; i < fighters.length; i++) {
+  let current = leaves[i];
+  for (const sibling of getProof(layers, i)) current = hashPair(current, sibling);
+  if (Buffer.compare(current, root) !== 0) {
+    throw new Error(`fighter #${i} failed proof verification`);
   }
+}
+console.log(`Root: ${root.toString("hex")}`);
 
-  // Load keypair
-  const walletJson = JSON.parse(fs.readFileSync(WALLET_PATH, "utf-8"));
-  const keypair    = Keypair.fromSecretKey(new Uint8Array(walletJson));
-  console.log(`Wallet: ${keypair.publicKey.toBase58()}`);
+// Initialize config (merkle + collection mint)
+console.log("Calling initialize_config\n");
 
-  // Load IDL
-  const idl = JSON.parse(fs.readFileSync(IDL_PATH, "utf-8"));
+const [configPda] = PublicKey.findProgramAddressSync(
+  [CONFIG_SEED],
+  program.programId
+);
 
-  // Providers
-  const connection = new Connection(RPC_URL, "confirmed");
-  const provider   = new AnchorProvider(connection, new Wallet(keypair), {
-    commitment: "confirmed",
-  });
-  anchor.setProvider(provider);
-  const program = new Program(idl, provider);
-
-  // UMI instance
-  const umi        = createUmi(RPC_URL).use(mplTokenMetadata());
-  const umiKeypair = umi.eddsa.createKeypairFromSecretKey(keypair.secretKey);
-  umi.use(keypairIdentity(umiKeypair));
-
-  // Airdrop
-  const sig = await connection.requestAirdrop(keypair.publicKey, 1e9);
-  const latestBlockhash = await connection.getLatestBlockhash();
-  await connection.confirmTransaction({
-    signature: sig,
-    blockhash: latestBlockhash.blockhash,
-    lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-  }, "confirmed");
-
-  // Verify output dir exists
-  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-
-  // Create Collection
-  console.log("Creating Collection\n");
-  const collectionSigner = generateSigner(umi);
-
-  await createNft(umi, {
-    mint: collectionSigner,
-    name: "Tatakaes",
-    symbol: "KAE",
-    uri: "https://tatakae.com/collection.json",
-    sellerFeeBasisPoints: percentAmount(0),
-    isCollection: true,
-  }).sendAndConfirm(umi);
-
-  const collectionMint = new PublicKey(collectionSigner.publicKey.toString());
-  console.log(`Collection ID: ${collectionMint.toBase58()}\n`);
-
-  // Minting NFTs
-  console.log("Minting NFTs\n");
-
-  const fighters = await Promise.all(
-    FIGHTER_POWERS.map(async (power, i) => {
-      // Each fighter gets its own UMI
-      const umiInstance = createUmi(RPC_URL).use(mplTokenMetadata());
-      umiInstance.use(keypairIdentity(umiKeypair));
-
-      const mintSigner = generateSigner(umiInstance);
-
-      await transactionBuilder()
-        .add(createNft(umiInstance, {
-          mint: mintSigner,
-          name: `Fighter #${i + 1}`,
-          symbol: "FGT",
-          uri: `https://example.com/fighter-${i + 1}.json`,
-          sellerFeeBasisPoints: percentAmount(0),
-          collection: { key: collectionSigner.publicKey, verified: false },
-        }))
-        .add(verifyCollectionV1(umiInstance, {
-          metadata: findMetadataPda(umiInstance, { mint: mintSigner.publicKey }),
-          collectionMint: collectionSigner.publicKey,
-          collectionMetadata: findMetadataPda(umiInstance, { mint: collectionSigner.publicKey }),
-          collectionMasterEdition: findMasterEditionPda(umiInstance, { mint: collectionSigner.publicKey }),
-          authority: umiInstance.identity,
-        }))
-        .sendAndConfirm(umiInstance);
-      return { mint: mintSigner.publicKey.toString(), power };
+const configInfo = await connection.getAccountInfo(configPda);
+if (configInfo !== null) {
+  console.log("Config PDA already exists\n");
+} else {
+  const tx = await program.methods
+    .initializeConfig(Array.from(root), collectionMint)
+    .accounts({
+      authority:     keypair.publicKey,
+      config:        configPda,
+      systemProgram: anchor.web3.SystemProgram.programId,
     })
+    .signers([keypair])
+    .rpc({ commitment: "confirmed" });
+  console.log(`Initialized config tx: ${tx}\n`);
+}
+
+// Save to output
+const output = {
+  collectionMint: collectionMint.toBase58(),
+  merkleRoot: root.toString("hex"),
+  merkleRootBytes: Array.from(root),
+  fighters: fighters.map((f, i) => ({
+    ...f,
+    proof: getProof(layers, i).map(p => Array.from(p)),
+  })),
+};
+
+fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
+console.log(`Saved to: ${OUTPUT_PATH}`);
+
+// write proofs to frontend /public
+const PROOFS_DIR = path.resolve(__dirname, "../../../frontend/public/proofs");
+if (!fs.existsSync(PROOFS_DIR)) fs.mkdirSync(PROOFS_DIR, { recursive: true });
+
+for (const fighter of output.fighters) {
+  const proofFile = path.join(PROOFS_DIR, `${fighter.mint}.json`);
+  fs.writeFileSync(
+    proofFile,
+    JSON.stringify({ mint: fighter.mint, power: fighter.power, proof: fighter.proof }, null, 2)
   );
+}
 
-  // Gen merkle proof for minted NFTs
-  const leaves = fighters.map(f => computeLeaf(new PublicKey(f.mint), f.power));
-  const layers = buildTree(leaves);
-  const root   = layers[layers.length - 1][0];
+console.log("Uploading metadata to R2...");
 
-  // Verify all proofs locally
-  for (let i = 0; i < fighters.length; i++) {
-    let current = leaves[i];
-    for (const sibling of getProof(layers, i)) current = hashPair(current, sibling);
-    if (Buffer.compare(current, root) !== 0) {
-      throw new Error(`fighter #${i} failed proof verification`);
-    }
-  }
-  console.log(`Root: ${root.toString("hex")}`);
+const s3 = new S3Client({
+  region: "auto",
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  },
+});
 
-  // Initialize config (merkle + collection mint)
-  console.log("Calling initialize_config\n");
-
-  const [configPda] = PublicKey.findProgramAddressSync(
-    [CONFIG_SEED],
-    program.programId
-  );
-
-  const configInfo = await connection.getAccountInfo(configPda);
-  if (configInfo !== null) {
-    console.log("Config PDA already exists\n");
-  } else {
-    const tx = await program.methods
-      .initializeConfig(Array.from(root), collectionMint)
-      .accounts({
-        authority:     keypair.publicKey,
-        config:        configPda,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([keypair])
-      .rpc({ commitment: "confirmed" });
-    console.log(`Initialized config tx: ${tx}\n`);
-  }
-
-  // Save to output
-  const output = {
-    collectionMint: collectionMint.toBase58(),
-    merkleRoot: root.toString("hex"),
-    merkleRootBytes: Array.from(root),
-    fighters: fighters.map((f, i) => ({
-      ...f,
-      proof: getProof(layers, i).map(p => Array.from(p)),
-    })),
+for (const fighter of fighters) {
+  const mint = fighter.mint;
+  /*
+  use temp imageURL for now
+  const imageURL = `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.R2_BUCKET_NAME}/images/${mint}.png`;
+  */
+  const imageURL = "https://picsum.photos/500"
+  const metadata = {
+    name: `Fighter #${fighters.indexOf(fighter) + 1}`,
+    symbol: "FGT",
+    description: "A Tatakae fighter NFT",
+    image: imageURL,
+    attributes: [
+      { trait_type: "Power", value: fighter.power },
+    ],
+    properties: {
+      files: [
+        {
+          uri: imageURL,
+          type: "image/png",
+        },
+      ],
+      category: "image",
+    },
   };
 
-  fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
-  console.log(`Saved to: ${OUTPUT_PATH}`);
+  await s3.send(new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: `metadata/${mint}.json`,
+    Body: JSON.stringify(metadata, null, 2),
+    ContentType: "application/json",
+  }));
 
-  // write proofs to frontend /public
-  const PROOFS_DIR = path.resolve(__dirname, "../../../frontend/public/proofs");
-  if (!fs.existsSync(PROOFS_DIR)) fs.mkdirSync(PROOFS_DIR, { recursive: true });
+  console.log(`Uploaded metadata for ${mint}`);
+}
 
-  for (const fighter of output.fighters) {
-    const proofFile = path.join(PROOFS_DIR, `${fighter.mint}.json`);
-    fs.writeFileSync(
-      proofFile,
-      JSON.stringify({ mint: fighter.mint, power: fighter.power, proof: fighter.proof }, null, 2)
-    );
-  }
+console.log("Metadata upload complete");
 
   printSummary(output);
 }

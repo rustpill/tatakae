@@ -1,0 +1,13 @@
+name = project_name
+account_id = account_id
+main = "src/index.ts"
+compatibility_date = "2026-03-01"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["* * * * *"]
+
+[[r2_buckets]]
+bucket_name = bucket_name
+binding = binding_name
+remote = true
