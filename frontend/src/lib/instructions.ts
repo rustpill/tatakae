@@ -1,7 +1,7 @@
 import { Program } from "@coral-xyz/anchor";
 import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import {
-  getAssociatedTokenAddress,
+  TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import type { Anchor } from "@/idl/program";
 import type { BattleAccount, FighterOption } from "@/types";
@@ -68,25 +68,31 @@ export async function fetchMyFighters(
   publicKey: PublicKey,
   connection: Connection,
 ): Promise<FighterOption[]> {
-  const allFighters = await program.account.fighter.all();
-  const myFighterList: FighterOption[] = [];
+  const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+    publicKey,
+    { programId: TOKEN_PROGRAM_ID }
+  );
 
-  for (const f of allFighters) {
+  const nftMints = tokenAccounts.value
+    .filter((t) => {
+      const info = t.account.data.parsed.info;
+      return info.tokenAmount.decimals === 0 && info.tokenAmount.uiAmount === 1;
+    })
+    .map((t) => new PublicKey(t.account.data.parsed.info.mint));
+
+  const fighters: FighterOption[] = [];
+
+  for (const mint of nftMints) {
+    const [fighterPda] = getFighterPda(mint);
     try {
-      const ata = await getAssociatedTokenAddress(f.account.mint, publicKey);
-      const tokenAccount = await connection.getTokenAccountBalance(ata);
-      if (tokenAccount.value.uiAmount === 1) {
-        myFighterList.push({
-          mint: f.account.mint,
-          power: f.account.power,
-        });
-      }
+      const fighter = await program.account.fighter.fetch(fighterPda);
+      fighters.push({ mint, power: fighter.power });
     } catch {
-      continue;
+      // no fighter PDA for this mint so skip
     }
   }
 
-  return myFighterList;
+  return fighters;
 }
 
 export async function createBattle(
@@ -170,7 +176,7 @@ export async function acceptBattle(
 
     if (!wallet.signTransaction) throw new Error("Wallet not connected");
     const signed = await wallet.signTransaction(tx);
-    const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+    const sig = await connection.sendRawTransaction(signed.serialize());
     await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
     return sig;
   }
