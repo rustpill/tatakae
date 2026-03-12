@@ -70,12 +70,6 @@ export async function syncFighterMetadata(
       console.log(`Updating ${mintStr} power: ${powerAttr.value} → ${fighter.power}`);
       powerAttr.value = fighter.power;
 
-      // Also update wins/losses
-      const winsAttr = metadata.attributes.find((a) => a.trait_type === "Wins");
-      const lossesAttr = metadata.attributes.find((a) => a.trait_type === "Losses");
-      if (winsAttr) winsAttr.value = fighter.wins;
-      if (lossesAttr) lossesAttr.value = fighter.losses;
-
       // Write updated metadata back to R2
       await bucket.put(key, JSON.stringify(metadata), {
         httpMetadata: { contentType: "application/json" },

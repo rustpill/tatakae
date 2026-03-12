@@ -44,6 +44,7 @@ const s3 = new S3Client({
   },
 });
 
+// nft metadata
 async function uploadMetadataToR2(mint: string, index: number, power: number) {
   const body = JSON.stringify({
     name: `Fighter #${index + 1}`,
@@ -52,8 +53,6 @@ async function uploadMetadataToR2(mint: string, index: number, power: number) {
     image: `${process.env.R2_PUBLIC_URL}/images/${mint}.png`,
     attributes: [
       { trait_type: "Power", value: power },
-      { trait_type: "Wins", value: 0 },
-      { trait_type: "Losses", value: 0 },
     ],
   });
 
@@ -65,6 +64,30 @@ async function uploadMetadataToR2(mint: string, index: number, power: number) {
   }));
 
   return `${process.env.R2_PUBLIC_URL}/metadata/${mint}.json`;
+}
+
+// collection metadata
+async function uploadCollectionMetadataToR2(): Promise<string> {
+  const body = JSON.stringify({
+    name: "Tatakaes",
+    symbol: "KAE",
+    description: "An on-chain Solana NFT fighting game.",
+    image: `${process.env.R2_PUBLIC_URL}/images/collection.png`,
+    external_url: "https://tatakae.com",
+    properties: {
+      files: [{ uri: `${process.env.R2_PUBLIC_URL}/images/collection.png`, type: "image/png" }],
+      category: "image",
+    },
+  });
+
+  await s3.send(new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: "metadata/collection.json",
+    Body: body,
+    ContentType: "application/json",
+  }));
+
+  return `${process.env.R2_PUBLIC_URL}/metadata/collection.json`;
 }
 
 // Merkle root helpers
@@ -169,12 +192,13 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 // Create Collection
 console.log("Creating Collection\n");
 const collectionSigner = generateSigner(umi);
+const collectionUri = await uploadCollectionMetadataToR2();
 
 await createNft(umi, {
   mint: collectionSigner,
   name: "Tatakaes",
   symbol: "KAE",
-  uri: "https://tatakae.com/collection.json",
+  uri: collectionUri,
   sellerFeeBasisPoints: percentAmount(0),
   isCollection: true,
 }).sendAndConfirm(umi);
@@ -284,55 +308,7 @@ for (const fighter of output.fighters) {
   );
 }
 
-console.log("Uploading metadata to R2...");
-
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
-  },
-});
-
-for (const fighter of fighters) {
-  const mint = fighter.mint;
-  /*
-  use temp imageURL for now
-  const imageURL = `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${process.env.R2_BUCKET_NAME}/images/${mint}.png`;
-  */
-  const imageURL = "https://picsum.photos/500"
-  const metadata = {
-    name: `Fighter #${fighters.indexOf(fighter) + 1}`,
-    symbol: "FGT",
-    description: "A Tatakae fighter NFT",
-    image: imageURL,
-    attributes: [
-      { trait_type: "Power", value: fighter.power },
-    ],
-    properties: {
-      files: [
-        {
-          uri: imageURL,
-          type: "image/png",
-        },
-      ],
-      category: "image",
-    },
-  };
-
-  await s3.send(new PutObjectCommand({
-    Bucket: process.env.R2_BUCKET_NAME!,
-    Key: `metadata/${mint}.json`,
-    Body: JSON.stringify(metadata, null, 2),
-    ContentType: "application/json",
-  }));
-
-  console.log(`Uploaded metadata for ${mint}`);
-}
-
 console.log("Metadata upload complete");
-
   printSummary(output);
 }
 
