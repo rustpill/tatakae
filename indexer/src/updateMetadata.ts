@@ -35,6 +35,10 @@ export async function syncFighterMetadata(
   const program = new Program<Anchor>(idl as any, provider);
 
   for (const mint of mints) {
+
+    const mintStr = mint.toBase58();
+    const key = `metadata/${mintStr}.json`;
+
     try {
       const [fighterPda] = PublicKey.findProgramAddressSync(
         [FIGHTER_SEED, mint.toBuffer()],
@@ -42,8 +46,6 @@ export async function syncFighterMetadata(
       );
 
       const fighter = await program.account.fighter.fetch(fighterPda);
-      const mintStr = mint.toBase58();
-      const key = `metadata/${mintStr}.json`;
       console.log(`Looking for key: ${key}`);
 
       // Fetch existing metadata from R2
@@ -78,6 +80,41 @@ export async function syncFighterMetadata(
       console.log(`Metadata updated for ${mintStr}`);
     } catch (err) {
       console.error(`Failed to sync metadata for ${mint.toBase58()}:`, err);
+
+      // Log to R2 so the retry worker can pick it up
+      await logSyncError(bucket, mintStr, err).catch((logErr) =>
+        console.error(`Failed to write error log for ${mintStr}:`, logErr)
+      );
     }
   }
+}
+
+async function logSyncError(
+  bucket: R2Bucket,
+  mintStr: string,
+  err: any
+): Promise<void> {
+  const key = `errors/${mintStr}.json`;
+  // Preserve existing log if present, increment retry count
+  let existing: { retryCount: number; errors: any[] } = { retryCount: 0, errors: [] };
+  try {
+    const obj = await bucket.get(key);
+    if (obj) existing = await obj.json();
+  } catch { /* no existing log */ }
+  const log = {
+    mint: mintStr,
+    retryCount: existing.retryCount + 1,
+    lastFailedAt: new Date().toISOString(),
+    errors: [
+      ...existing.errors,
+      {
+        message: err?.message ?? String(err),
+        failedAt: new Date().toISOString(),
+      },
+    ],
+  };
+  await bucket.put(key, JSON.stringify(log, null, 2), {
+    httpMetadata: { contentType: "application/json" },
+  });
+  console.log(`Error logged to R2: ${key}`);
 }
