@@ -1,10 +1,9 @@
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
-import type { Anchor } from "./types/anchor";
-import { buildWallet } from "./resolveBattle";
-import idl from "../idl/anchor.json";
-
-const FIGHTER_SEED = Buffer.from("fighter");
+import type { Anchor } from "./idl/anchor";
+import { buildWallet } from "./utils";
+import idl from "./idl/anchor.json";
+import { FIGHTER_SEED } from "./constants";
 
 interface FighterMetadata {
   name: string;

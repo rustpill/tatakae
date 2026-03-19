@@ -1,0 +1,2 @@
+RPC_URL=your_rpc_url
+AUTHORITY_KEYPAIR=your_keypair_bytes

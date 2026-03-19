@@ -1,6 +1,6 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { syncFighterMetadata } from "./updateMetadata";
-const MAX_RETRY_COUNT = 5;
+import { MAX_RETRY_COUNT } from "./constants";
 
 export async function retryFailedMetadata(
   rpcUrl: string,
@@ -15,6 +15,8 @@ export async function retryFailedMetadata(
   }
 
   console.log(`Found ${listed.objects.length} metadata error(s) to retry`);
+
+  const mintsToRetry: PublicKey[] = [];
 
   for (const obj of listed.objects) {
     const errorKey = obj.key;
@@ -44,16 +46,15 @@ export async function retryFailedMetadata(
       continue;
     }
 
-    // Retry the sync
-    console.log(`Retrying metadata sync for ${mintStr} (attempt ${log.retryCount + 1})`);
-    try {
-      await syncFighterMetadata(rpcUrl, keypair, bucket, [new PublicKey(mintStr)]);
-      // Success - delete the error log
-      await bucket.delete(errorKey);
-      console.log(`Retry succeeded for ${mintStr} - error log cleared`);
-    } catch (err) {
-      // syncFighterMetadata already wrote the updated error log, nothing else to do
-      console.error(`Retry failed for ${mintStr}:`, err);
-    }
+    console.log(`Queuing retry for ${mintStr} (attempt ${log.retryCount + 1})`);
+    mintsToRetry.push(new PublicKey(mintStr));
   }
+ 
+  if (mintsToRetry.length === 0) {
+    console.log("No mints to retry after filtering");
+    return;
+  }
+
+  console.log(`Retrying ${mintsToRetry.length} mint(s) in one pass`);
+  await syncFighterMetadata(rpcUrl, keypair, bucket, mintsToRetry);
 }

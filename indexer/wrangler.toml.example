@@ -10,4 +10,9 @@ crons = ["* * * * *"]
 [[r2_buckets]]
 bucket_name = bucket_name
 binding = binding_name
-remote = true
+remote = true // for testing
+
+[[d1_databases]]
+binding = binding_name
+database_name = database_name
+database_id = database_id
