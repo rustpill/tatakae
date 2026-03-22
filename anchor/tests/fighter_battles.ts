@@ -547,7 +547,7 @@ describe("fighter-battles", () => {
         .signers([bar])
         .rpc();
 
-      // Battle should now be Accepted — not closed
+      // Battle should now be Accepted - not closed
       const battleState = await program.account.battle.fetch(battle);
       assert.deepEqual(battleState.status, { accepted: {} }, "Battle should be Accepted after accept_battle");
       assert.isNotNull(battleState.acceptedSlot, "acceptedSlot should be set");
@@ -748,7 +748,7 @@ describe("fighter-battles", () => {
         .signers([walletB])
         .rpc();
 
-      // Attempt immediate resolve — should fail with BattleNotReadyToResolve
+      // Attempt immediate resolve - should fail with BattleNotReadyToResolve
       try {
         await program.methods
           .resolveBattle()
@@ -777,7 +777,7 @@ describe("fighter-battles", () => {
         assert.fail("Should have thrown BattleNotReadyToResolve");
       } catch (e: any) {
         assert.include(e.message, "BattleNotReadyToResolve");
-        console.log("\nSlot delay enforced — immediate resolve rejected");
+        console.log("\nSlot delay enforced - immediate resolve rejected");
       }
 
       // Clean up: wait and resolve so the battle PDA and escrows are properly closed

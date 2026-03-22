@@ -22,6 +22,8 @@ import * as os from "os";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import * as dotenv from "dotenv";
 dotenv.config({ path: path.resolve(__dirname, "../../.env.local") });
+// For img gen
+import sharp from "sharp";
 
 const RPC_URL = "http://127.0.0.1:8899";
 
@@ -44,7 +46,29 @@ const s3 = new S3Client({
   },
 });
 
-// nft metadata
+// For img gen
+const PALETTE: [number, number, number][] = [
+  [8, 20, 30],
+  [15, 42, 63],
+  [32, 57, 79],
+  [246, 214, 189],
+  [195, 163, 138],
+  [153, 117, 119],
+  [129, 98, 113],
+  [78, 73, 95],
+];
+
+// Sender helper
+async function sendToBucket(Key: string, Body: string | Buffer, ContentType: string) {
+  await s3.send(new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key,
+    Body,
+    ContentType,
+  }));
+}
+
+// Nft metadata
 async function uploadMetadataToR2(mint: string, index: number, power: number) {
   const body = JSON.stringify({
     name: `Fighter #${index + 1}`,
@@ -56,17 +80,12 @@ async function uploadMetadataToR2(mint: string, index: number, power: number) {
     ],
   });
 
-  await s3.send(new PutObjectCommand({
-    Bucket: process.env.R2_BUCKET_NAME!,
-    Key: `metadata/${mint}.json`,
-    Body: body,
-    ContentType: "application/json",
-  }));
+  await sendToBucket(`metadata/${mint}.json`, body, "application/json")
 
   return `${process.env.R2_PUBLIC_URL}/metadata/${mint}.json`;
 }
 
-// collection metadata
+// Collection metadata
 async function uploadCollectionMetadataToR2(): Promise<string> {
   const body = JSON.stringify({
     name: "Tatakaes",
@@ -80,12 +99,7 @@ async function uploadCollectionMetadataToR2(): Promise<string> {
     },
   });
 
-  await s3.send(new PutObjectCommand({
-    Bucket: process.env.R2_BUCKET_NAME!,
-    Key: "metadata/collection.json",
-    Body: body,
-    ContentType: "application/json",
-  }));
+  await sendToBucket("metadata/collection.json", body, "application/json")
 
   return `${process.env.R2_PUBLIC_URL}/metadata/collection.json`;
 }
@@ -143,6 +157,16 @@ function printSummary(output: any) {
   });
 }
 
+// Auto image gen helpers
+async function generateFighterImage(index: number): Promise<Buffer> {
+  const [r, g, b] = PALETTE[index % PALETTE.length];
+  return sharp({
+    create: { width: 512, height: 512, channels: 3, background: { r, g, b } },
+  })
+    .png()
+    .toBuffer();
+}
+
 // MAIN
 
 async function main() {
@@ -189,6 +213,11 @@ await connection.confirmTransaction({
 // Verify output dir exists
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
+// Upload collection image
+console.log("Uploading collection image\n");
+const collectionBuffer = await generateFighterImage(0);
+await sendToBucket("images/collection.png", collectionBuffer, "image/png")
+
 // Create Collection
 console.log("Creating Collection\n");
 const collectionSigner = generateSigner(umi);
@@ -216,6 +245,16 @@ const fighters = await Promise.all(
     umiInstance.use(keypairIdentity(umiKeypair));
 
     const mintSigner = generateSigner(umiInstance);
+
+    // Generate image first
+    const imageBuffer = await generateFighterImage(i);
+
+    // Upload image to R2
+    await sendToBucket(
+      `images/${mintSigner.publicKey.toString()}.png`,
+       imageBuffer,
+      "image/png"
+    )
 
     // upload metadata
     const uri = await uploadMetadataToR2(
