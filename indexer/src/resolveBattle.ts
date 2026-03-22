@@ -52,7 +52,7 @@ export async function resolvePendingBattles(
     }
     return true;
   });
-  console.log(`${readyBattles.length} battles ready to resolve — processing in parallel`);
+  console.log(`${readyBattles.length} battles ready to resolve - processing in parallel`);
   // Resolve all ready battles in parallel
   const results = await Promise.allSettled(
     readyBattles.map((b) =>
@@ -79,7 +79,7 @@ export async function resolvePendingBattles(
         console.log(`Resolved battle (timeout): ${b.publicKey.toBase58()}`);
         resolvedBattles.push({ signerNft: b.account.signerNft, opponentNft: b.account.opponentNft! });
 
-        // Transaction likely landed despite timeout — recover event from logs
+        // Transaction likely landed despite timeout - recover event from logs
         const sig = err?.signature ?? err?.transactionSignature;
         console.log(`Attempting event recovery from sig: ${sig}`);
         if (sig) {
@@ -96,7 +96,7 @@ export async function resolvePendingBattles(
             console.error(`Could not recover battle record after timeout:`, recoveryErr);
           }
         } else {
-          console.warn(`No signature on timeout error — cannot recover battle record`);
+          console.warn(`No signature on timeout error - cannot recover battle record`);
         }
       } else {
         console.error(`Failed to resolve battle ${b.publicKey.toBase58()}:`, err);
