@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { ExplorerLink } from "./ExplorerLink";
 
 interface ToastProps {
   message: string;
@@ -15,46 +16,36 @@ export function Toast({ message, txSignature, onClose }: ToastProps) {
   }, [onClose]);
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: "1.5rem",
-        left: "1.5rem",
-        background: "#1a1a1a",
-        border: "1px solid #444",
-        borderRadius: "8px",
-        padding: "1rem 1.25rem",
-        zIndex: 1000,
-        maxWidth: "400px",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-      }}
-    >
-      <p style={{ margin: 0, marginBottom: txSignature ? "0.5rem" : 0 }}>{message}</p>
-      {txSignature && (
-        <a
-          href={`https://explorer.solana.com/tx/${txSignature}?cluster=custom&customUrl=http://localhost:8899`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ fontSize: "0.8rem", color: "#888" }}
+    <div className="pixel-toast">
+      <div className="pixel-panel relative p-4">
+        {/* Corner */}
+        <div className="absolute top-[3px] left-[3px] w-1.5 h-1.5 bg-steel-2" />
+        <div className="absolute top-[3px] right-7 w-1.5 h-1.5 bg-steel-2" />
+
+        <div className="font-pixel text-sm text-gold mb-1.5 tracking-wide">
+          ▶ SYSTEM MSG
+        </div>
+
+        <p className={`font-vt text-[22px] text-white leading-[1.3] ${txSignature ? "mb-2" : ""}`}>
+          {message}
+        </p>
+
+        {txSignature && (
+          <ExplorerLink
+            address={txSignature}
+            type="tx"
+            display="VIEW TX →"
+            className="text-steel-2!"
+          />
+        )}
+
+        <button
+          onClick={onClose}
+          className="absolute top-2 right-2.5 bg-transparent border-none text-steel-2 cursor-pointer font-pixel text-[10px] px-1 py-0.5"
         >
-          View on Explorer →
-        </a>
-      )}
-      <button
-        onClick={onClose}
-        style={{
-          position: "absolute",
-          top: "0.5rem",
-          right: "0.75rem",
-          background: "none",
-          border: "none",
-          color: "#888",
-          cursor: "pointer",
-          fontSize: "1rem",
-        }}
-      >
-        ✕
-      </button>
+          ✕
+        </button>
+      </div>
     </div>
   );
 }

@@ -2,67 +2,96 @@
 
 import { useEffect, useState } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { PublicKey } from "@solana/web3.js";
+import { SlidersHorizontal, X, Swords, RefreshCw, Plus } from "lucide-react";
 import { useAnchorProgram } from "@/hooks/useAnchorProgram";
 import { Toast } from "@/components/Toast";
 import { useToast } from "@/hooks/useToast";
-import { renderMode, renderStatus } from "@/utils/format";
+import { PixelNav } from "@/components/PixelNav";
+import { BattleCard } from "@/components/BattleCard";
+import { StatusBadge } from "@/components/StatusBadge";
+import { ModeBadge } from "@/components/ModeBadge";
+import { SectionHeader } from "@/components/SectionHeader";
+import { ExplorerLink } from "@/components/ExplorerLink";
 import {
   fetchBattles,
   fetchMyFighters,
   createBattle,
   acceptBattle,
-  cancelBattle
+  cancelBattle,
 } from "@/lib/instructions";
-import type { BattleAccount, FighterOption } from "@/types/";
+import type { BattleAccount, FighterOption } from "@/types";
 import Link from "next/link";
+
+type Tab = "open" | "targeted" | "created" | "create";
+
+interface BattleFilters {
+  search: string;
+  mode: "all" | "pinkSlip" | "bite";
+  minPowerFilter: string;
+  maxPowerFilter: string;
+}
+
+function filterBattles(battles: BattleAccount[], filters: BattleFilters): BattleAccount[] {
+  return battles.filter((b) => {
+    if (filters.search &&
+        !b.publicKey.toBase58().toLowerCase().includes(filters.search.toLowerCase()) &&
+        !b.signer.toBase58().toLowerCase().includes(filters.search.toLowerCase())) return false;
+    if (filters.mode !== "all") {
+      const isMode = filters.mode === "pinkSlip" ? "pinkSlip" in b.battleMode : "bite" in b.battleMode;
+      if (!isMode) return false;
+    }
+    if (filters.minPowerFilter !== "") {
+      const min = parseInt(filters.minPowerFilter);
+      if (b.maxPower !== null && b.maxPower < min) return false;
+    }
+    if (filters.maxPowerFilter !== "") {
+      const max = parseInt(filters.maxPowerFilter);
+      if (b.minPower !== null && b.minPower > max) return false;
+    }
+    return true;
+  });
+}
 
 export default function ArenaPage() {
   const { publicKey, wallet } = useWallet();
   const { connection } = useConnection();
   const { program } = useAnchorProgram();
   const { toast, showToast, hideToast } = useToast();
- 
+
   const [openBattles, setOpenBattles] = useState<BattleAccount[]>([]);
   const [targetedBattles, setTargetedBattles] = useState<BattleAccount[]>([]);
-  const [myBattles, setMyBattles] = useState<BattleAccount[]>([]);
+  const [createdBattles, setCreatedBattles] = useState<BattleAccount[]>([]);
   const [myFighters, setMyFighters] = useState<FighterOption[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("open");
+  const [showFilters, setShowFilters] = useState(false);
 
-  // For create_battle
-  const [selectedMint, setSelectedMint] = useState<string>("");
+  const [filters, setFilters] = useState<BattleFilters>({
+    search: "", mode: "all", minPowerFilter: "", maxPowerFilter: "",
+  });
+
+  const [selectedMint, setSelectedMint] = useState("");
   const [battleMode, setBattleMode] = useState<"pinkSlip" | "bite">("pinkSlip");
-  const [minPower, setMinPower] = useState<string>("");
-  const [maxPower, setMaxPower] = useState<string>("");
-  const [targetOpponentNft, setTargetOpponentNft] = useState<string>("");
+  const [minPower, setMinPower] = useState("");
+  const [maxPower, setMaxPower] = useState("");
+  const [targetOpponentNft, setTargetOpponentNft] = useState("");
   const [creating, setCreating] = useState(false);
   const [accepting, setAccepting] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!program) return;
-    handleFetchBattles();
-  }, [program, publicKey]);
-
-  useEffect(() => {
-    if (!publicKey || !program) return;
-    handleFetchMyFighters();
-  }, [publicKey, program]);
+  useEffect(() => { if (program) handleFetchBattles(); }, [program, publicKey]);
+  useEffect(() => { if (publicKey && program) handleFetchMyFighters(); }, [publicKey, program]);
 
   async function handleFetchBattles() {
     if (!program) return;
     setLoading(true);
     try {
-      const { open, targeted, mine } = await fetchBattles(program, publicKey);
-      setOpenBattles(open);
-      setTargetedBattles(targeted);
-      setMyBattles(mine);
+      const { open, targeted, mine } = await fetchBattles(program, publicKey, connection);
+      setOpenBattles(open); setTargetedBattles(targeted); setCreatedBattles(mine);
     } catch (err: any) {
       showToast(`Failed to load battles: ${err?.message ?? "Unknown error"}`);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   async function handleFetchMyFighters() {
@@ -80,47 +109,25 @@ export default function ArenaPage() {
     if (!publicKey || !program || !selectedMint) return;
     setCreating(true);
     try {
-      const tx = await createBattle(
-        program,
-        publicKey,
-        connection,
-        selectedMint,
-        battleMode,
-        minPower,
-        maxPower,
-        targetOpponentNft,
-      );
-      showToast("Battle created", tx);
-      setTargetOpponentNft("");
-      setMinPower("");
-      setMaxPower("");
-      await handleFetchBattles();
+      const tx = await createBattle(program, publicKey, connection, selectedMint, battleMode, minPower, maxPower, targetOpponentNft);
+      showToast("Battle created!", tx);
+      setTargetOpponentNft(""); setMinPower(""); setMaxPower("");
+      await handleFetchBattles(); await handleFetchMyFighters();
     } catch (err: any) {
-      showToast(`Failed to create battle: ${err?.message ?? "Unknown error"}`);
-    } finally {
-      setCreating(false);
-    }
+      showToast(`Failed: ${err?.message ?? "Unknown error"}`);
+    } finally { setCreating(false); }
   }
 
   async function handleAcceptBattle(battle: BattleAccount, opponentMint: PublicKey) {
     if (!publicKey || !program) return;
     setAccepting(battle.publicKey.toBase58());
     try {
-      const tx = await acceptBattle(
-        program,
-        publicKey,
-        connection,
-        wallet?.adapter as any,
-        battle,
-        opponentMint
-      );
-      showToast("Battle accepted! Waiting for resolution.", tx);
-      await handleFetchBattles();
+      const tx = await acceptBattle(program, publicKey, connection, wallet?.adapter as any, battle, opponentMint);
+      showToast("Battle accepted!", tx);
+      await handleFetchBattles(); await handleFetchMyFighters();
     } catch (err: any) {
-      showToast(`Failed to accept battle: ${err?.message ?? "Unknown error"}`);
-    } finally {
-      setAccepting(null);
-    }
+      showToast(`Failed: ${err?.message ?? "Unknown error"}`);
+    } finally { setAccepting(null); }
   }
 
   async function handleCancelBattle(battle: BattleAccount) {
@@ -128,252 +135,363 @@ export default function ArenaPage() {
     setCancelling(battle.publicKey.toBase58());
     try {
       const tx = await cancelBattle(program, publicKey, battle);
-      showToast("Battle cancelled. NFT returned.", tx);
-      await handleFetchBattles();
+      showToast("Battle cancelled.", tx);
+      await handleFetchBattles(); await handleFetchMyFighters();
     } catch (err: any) {
-      showToast(`Failed to cancel battle: ${err?.message ?? "Unknown error"}`);
-    } finally {
-      setCancelling(null);
-    }
+      showToast(`Failed: ${err?.message ?? "Unknown error"}`);
+    } finally { setCancelling(null); }
   }
 
+  const filteredOpen = filterBattles(openBattles, filters);
+  const filteredTargeted = filterBattles(targetedBattles, filters);
+
+  const tabs: { id: Tab; label: string; count: number | null }[] = [
+    { id: "open", label: "OPEN", count: openBattles.length },
+    { id: "targeted", label: "TARGETED", count: targetedBattles.length },
+    { id: "created", label: "CREATED", count: createdBattles.length },
+    { id: "create", label: "CREATE", count: null },
+  ];
+
+  const hasActiveFilters = filters.search !== "" || filters.mode !== "all" || filters.minPowerFilter !== "" || filters.maxPowerFilter !== "";
+
   return (
-    <main style={{ padding: "2rem" }}>
-      <Link href="/">← Back</Link>
-      <h1>Arena</h1>
-      <WalletMultiButton />
+    <main className="min-h-screen bg-black">
+        
+      <PixelNav />
 
-      {/* Create battle */}
-      {publicKey && myFighters.length > 0 && (
-        <section style={{ marginTop: "2rem" }}>
-          <h2>Create Battle</h2>
+      <div className="max-w-[960px] mx-auto px-6 py-8">
 
-          <div style={{ marginTop: "1rem" }}>
-            <label>Your Fighter</label>
-            <br />
-            <select
-              value={selectedMint}
-              onChange={(e) => setSelectedMint(e.target.value)}
-            >
-              {myFighters.map((f) => (
-                <option key={f.mint.toBase58()} value={f.mint.toBase58()}>
-                  {f.mint.toBase58().slice(0, 8)}... — Power: {f.power}
-                </option>
-              ))}
-            </select>
+        {/* Title + refresh */}
+        <div className="flex items-center justify-between flex-wrap gap-4 mb-6">
+          <div className="flex items-center gap-2.5">
+            <Swords className="text-red" />
+            <span className="font-pixel text-white" style={{ textShadow: "2px 2px 0 var(--color-red-dark)" }}>
+              BATTLE ARENA
+            </span>
           </div>
-
-          <div style={{ marginTop: "1rem" }}>
-            <label>Battle Mode</label>
-            <br />
-            <select
-              value={battleMode}
-              onChange={(e) => setBattleMode(e.target.value as "pinkSlip" | "bite")}
-            >
-              <option value="pinkSlip">Pink Slip (winner takes NFT)</option>
-              <option value="bite">Bite (20% power transfer)</option>
-            </select>
-          </div>
-
-          <div style={{ marginTop: "1rem" }}>
-            <label>Min Power (optional)</label>
-            <br />
-            <input
-              type="number"
-              value={minPower}
-              onChange={(e) => setMinPower(e.target.value)}
-              placeholder="e.g. 100"
-            />
-          </div>
-
-          <div style={{ marginTop: "0.5rem" }}>
-            <label>Max Power (optional)</label>
-            <br />
-            <input
-              type="number"
-              value={maxPower}
-              onChange={(e) => setMaxPower(e.target.value)}
-              placeholder="e.g. 500"
-            />
-          </div>
-
-          <div style={{ marginTop: "1rem" }}>
-            <label>Target Opponent NFT Mint (optional)</label>
-            <br />
-            <input
-              type="text"
-              value={targetOpponentNft}
-              onChange={(e) => setTargetOpponentNft(e.target.value)}
-              placeholder="Opponent NFT mint"
-              style={{ width: "400px" }}
-            />
-          </div>
-
           <button
-            onClick={handleCreateBattle}
-            disabled={creating}
-            style={{ marginTop: "1rem" }}
+            className="pixel-btn pixel-btn--primary text-[8px] flex items-center gap-1"
+            onClick={handleFetchBattles}
+            disabled={loading}
           >
-            {creating ? "Creating..." : "Create Battle"}
+            <RefreshCw size={10} /> {loading ? "LOADING..." : "REFRESH"}
           </button>
-        </section>
-      )}
+        </div>
 
-      {publicKey && myFighters.length === 0 && !loading && (
-        <p style={{ marginTop: "1rem" }}>
-          No initialised fighters found. Go to your{" "}
-          <Link href="/profile">Profile</Link> to initialise them first.
-        </p>
-      )}
+        <div className="pixel-divider" />
 
-      {loading && <p style={{ marginTop: "1rem" }}>Loading battles...</p>}
-
-      {/* Battles targeting user */}
-      {publicKey && targetedBattles.length > 0 && (
-        <section style={{ marginTop: "2rem" }}>
-          <h2>Battles Targeting You</h2>
-          {targetedBattles.map((b) => (
-            <div
-              key={b.publicKey.toBase58()}
-              style={{ border: "1px solid #f90", padding: "1rem", marginTop: "1rem" }}
+        {/* Tab bar */}
+        <div className="flex border-b-[3px] border-steel-4 mb-6">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className="font-pixel text-md px-4 py-3 border-none cursor-pointer flex items-center gap-1.5 -mb-[3px]"
+              style={{
+                background: activeTab === tab.id ? "var(--color-steel-4)" : "transparent",
+                color: activeTab === tab.id ? "var(--color-gold)" : "var(--color-steel-3)",
+                borderBottom: activeTab === tab.id ? "3px solid var(--color-gold)" : "3px solid transparent",
+              }}
             >
-              <p>Battle: {b.publicKey.toBase58()}</p>
-              <p>From: {b.signer.toBase58()}</p>
-              <p>Their NFT: {b.signerNft.toBase58()}</p>
-              <p>Mode: {renderMode(b.battleMode)}</p>
-              {b.opponentNft && <p>They want your NFT: {b.opponentNft.toBase58()}</p>}
-              {b.opponentNft ? (
-                <button
-                  disabled={accepting === b.publicKey.toBase58()}
-                  onClick={() => handleAcceptBattle(b, b.opponentNft!)}
+              {tab.id === "create" && <Plus size={10} />}
+              {tab.label}
+              {tab.count !== null && tab.count > 0 && (
+                <span
+                  className="text-white text-sm px-[5px] min-w-4 text-center"
+                  style={{ background: tab.id === "targeted" ? "var(--color-red)" : "var(--color-steel-3)" }}
                 >
-                  {accepting === b.publicKey.toBase58() ? "Accepting..." : "Accept"}
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Filter bar */}
+        {(activeTab === "open" || activeTab === "targeted") && (
+          <div className="mb-6">
+            <div className="flex gap-2 flex-wrap items-center">
+              <div className="relative flex-1 min-w-[200px]">
+                <input
+                  type="text"
+                  className="pixel-input pl-7"
+                  placeholder="Search by address..."
+                  value={filters.search}
+                  onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+                />
+              </div>
+              <button
+                className={`pixel-btn ${showFilters || hasActiveFilters ? "pixel-btn--gold" : "pixel-btn--primary"} flex items-center gap-1`}
+                onClick={() => setShowFilters(!showFilters)}
+              >
+                <SlidersHorizontal size={20} />
+                FILTERS {hasActiveFilters && "(ON)"}
+              </button>
+              {hasActiveFilters && (
+                <button
+                  className="pixel-btn pixel-btn--red text-[8px] flex items-center gap-1"
+                  onClick={() => setFilters({ search: "", mode: "all", minPowerFilter: "", maxPowerFilter: "" })}
+                >
+                  <X size={20} /> CLEAR
                 </button>
-              ) : (
-                <>
-                  <select id={`accept-select-${b.publicKey.toBase58()}`}>
+              )}
+            </div>
+
+            {showFilters && (
+              <div className="pixel-panel p-4 mt-2 flex gap-3 flex-wrap items-end">
+                <div>
+                  <label className="font-pixel text-steel-2 block mb-1">MODE</label>
+                  <div className="flex gap-1.5">
+                    {(["all", "pinkSlip", "bite"] as const).map((m) => (
+                      <button
+                        key={m}
+                        className={`pixel-btn ${filters.mode === m ? "pixel-btn--gold" : "pixel-btn--primary"} text-[7px]`}
+                        onClick={() => setFilters((f) => ({ ...f, mode: m }))}
+                      >
+                        {m === "all" ? "ALL" : m === "pinkSlip" ? "PINK SLIP" : "BITE"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="font-pixel text-steel-2 block mb-1">MIN PWR</label>
+                  <input
+                    type="number"
+                    className="pixel-input w-20"
+                    placeholder="0"
+                    value={filters.minPowerFilter}
+                    onChange={(e) => setFilters((f) => ({ ...f, minPowerFilter: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="font-pixel text-steel-2 block mb-1">MAX PWR</label>
+                  <input
+                    type="number"
+                    className="pixel-input w-20"
+                    placeholder="9999"
+                    value={filters.maxPowerFilter}
+                    onChange={(e) => setFilters((f) => ({ ...f, maxPowerFilter: e.target.value }))}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* OPEN */}
+        {activeTab === "open" && (
+          <section className="flex flex-col gap-4">
+            <SectionHeader>OPEN CHALLENGES</SectionHeader>
+
+            {loading && <div className="pixel-loading">LOADING...</div>}
+
+            {!loading && filteredOpen.length === 0 && (
+              <div className="font-pixel text-steel-4 text-center py-6">
+                {hasActiveFilters ? "NO BATTLES MATCH FILTERS" : "NO OPEN BATTLES"}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              {filteredOpen.map((b) => (
+                <BattleCard
+                  key={b.publicKey.toBase58()}
+                  battle={b}
+                  myFighters={myFighters}
+                  publicKey={publicKey}
+                  accepting={accepting}
+                  onAccept={handleAcceptBattle}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* TARGETED */}
+        {activeTab === "targeted" && (
+          <section className="flex flex-col gap-4">
+            <SectionHeader>TARGETED AT YOU</SectionHeader>
+
+            {filteredTargeted.length === 0 && !loading && (
+              <div className="font-pixel text-steel-4 text-center py-6">
+                {hasActiveFilters
+                  ? "NO BATTLES MATCH FILTERS"
+                  : "NO TARGETED BATTLES"}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredTargeted.map((b) => (
+                <BattleCard
+                  key={b.publicKey.toBase58()}
+                  battle={b}
+                  myFighters={myFighters}
+                  publicKey={publicKey}
+                  accepting={accepting}
+                  onAccept={handleAcceptBattle}
+                  highlight
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* CREATED */}
+        {activeTab === "created" && (
+          <section className="flex flex-col gap-4">
+            <SectionHeader>MY BATTLES</SectionHeader>
+
+            {createdBattles.length === 0 && !loading && (
+              <div className="font-pixel text-steel-4 text-center py-6">
+                NO BATTLES YET
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {createdBattles.map((b) => (
+                <div
+                  key={b.publicKey.toBase58()}
+                  className="pixel-panel battle-card flex flex-col gap-3 p-4"
+                >
+                  {/* Top row */}
+                  <div className="flex justify-between items-start flex-wrap gap-2">
+                    <div className="flex gap-2 flex-wrap">
+                      <ModeBadge mode={b.battleMode} />
+                      <StatusBadge status={b.status} />
+                    </div>
+
+                    {b.winner && (
+                      <span
+                        className={`font-pixel ${
+                          b.winner.toBase58() === publicKey?.toBase58()
+                            ? "text-green"
+                            : "text-red"
+                        }`}
+                      >
+                        {b.winner.toBase58() === publicKey?.toBase58()
+                          ? "WIN"
+                          : "LOSS"}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Address */}
+                  <ExplorerLink
+                    address={b.publicKey.toBase58()}
+                    type="address"
+                    className="text-[22px]!"
+                  />
+
+                  {/* Actions */}
+                  {"pending" in b.status &&
+                    publicKey &&
+                    b.signer.toBase58() === publicKey.toBase58() && (
+                      <button
+                        className="pixel-btn pixel-btn--red text-[8px] mt-2 flex items-center gap-1 self-start"
+                        disabled={cancelling === b.publicKey.toBase58()}
+                        onClick={() => handleCancelBattle(b)}
+                      >
+                        <X size={10} />
+                        {cancelling === b.publicKey.toBase58()
+                          ? "CANCELLING..."
+                          : "CANCEL"}
+                      </button>
+                    )}
+                </div>
+              ))}
+            </div>
+          </section>
+      )}
+
+        {/* CREATE */}
+        {activeTab === "create" && (
+          <section>
+            <SectionHeader>CREATE BATTLE</SectionHeader>
+
+            {!publicKey && (
+              <div className="font-pixel  text-steel-3 text-center py-6">
+                CONNECT WALLET TO CREATE
+              </div>
+            )}
+
+            {publicKey && myFighters.length === 0 && (
+              <div className="font-pixel  text-steel-3 text-center py-6 leading-[3]">
+                NO FIGHTERS AVAILABLE<br />
+                <Link href="/profile" className="text-gold no-underline text-[8px]">
+                  GO TO PROFILE TO REGISTER
+                </Link>
+              </div>
+            )}
+
+            {publicKey && myFighters.length > 0 && (
+              <div className="pixel-panel p-6 max-w-[520px]">
+
+                <div className="mb-5">
+                  <label className="font-pixel text-steel-2 block mb-1.5">SELECT FIGHTER</label>
+                  <select className="pixel-input" value={selectedMint} onChange={(e) => setSelectedMint(e.target.value)}>
                     {myFighters.map((f) => (
                       <option key={f.mint.toBase58()} value={f.mint.toBase58()}>
-                        {f.mint.toBase58().slice(0, 8)}... — Power: {f.power}
+                        {f.mint.toBase58().slice(0, 10)}...  PWR: {f.power}
                       </option>
                     ))}
                   </select>
-                  <button
-                    style={{ marginLeft: "0.5rem" }}
-                    disabled={accepting === b.publicKey.toBase58()}
-                    onClick={() => {
-                      const sel = document.getElementById(
-                        `accept-select-${b.publicKey.toBase58()}`
-                      ) as HTMLSelectElement;
-                      handleAcceptBattle(b, new PublicKey(sel.value));
-                    }}
-                  >
-                    {accepting === b.publicKey.toBase58() ? "Accepting..." : "Accept"}
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-        </section>
-      )}
-
-      {/* Open battles */}
-      <section style={{ marginTop: "2rem" }}>
-        <h2>Open Battles</h2>
-        {openBattles.length === 0 && !loading && <p>No open battles.</p>}
-        {openBattles.map((b) => (
-          <div
-            key={b.publicKey.toBase58()}
-            style={{ border: "1px solid #ccc", padding: "1rem", marginTop: "1rem" }}
-          >
-            <p>Battle: {b.publicKey.toBase58()}</p>
-            <p>From: {b.signer.toBase58()}</p>
-            <p>Their NFT: {b.signerNft.toBase58()}</p>
-            <p>Mode: {renderMode(b.battleMode)}</p>
-            {b.minPower !== null && <p>Min Power: {b.minPower}</p>}
-            {b.maxPower !== null && <p>Max Power: {b.maxPower}</p>}
-            {publicKey && myFighters.length > 0 && (() => {
-              const eligible = myFighters.filter((f) => {
-                if (b.minPower !== null && f.power < b.minPower) return false;
-                if (b.maxPower !== null && f.power > b.maxPower) return false;
-                return true;
-              });
-
-              if (eligible.length === 0) {
-                return <p style={{ color: "#888", marginTop: "0.5rem" }}>No fighters meet the power requirements.</p>;
-              }
-
-              return (
-                <div style={{ marginTop: "0.5rem" }}>
-                  <select id={`open-select-${b.publicKey.toBase58()}`}>
-                    {eligible.map((f) => (
-                      <option key={f.mint.toBase58()} value={f.mint.toBase58()}>
-                        {f.mint.toBase58().slice(0, 8)}... — Power: {f.power}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    style={{ marginLeft: "0.5rem" }}
-                    disabled={accepting === b.publicKey.toBase58()}
-                    onClick={() => {
-                      const sel = document.getElementById(
-                        `open-select-${b.publicKey.toBase58()}`
-                      ) as HTMLSelectElement;
-                      handleAcceptBattle(b, new PublicKey(sel.value));
-                    }}
-                  >
-                    {accepting === b.publicKey.toBase58() ? "Accepting..." : "Accept"}
-                  </button>
                 </div>
-              );
-            })()}
-          </div>
-        ))}
-      </section>
 
-      {/* User battle history */}
-      {publicKey && (
-        <section style={{ marginTop: "2rem" }}>
-          <h2>My Battle History</h2>
-          {myBattles.length === 0 && !loading && <p>No battles yet.</p>}
-          {myBattles.map((b) => (
-            <div
-              key={b.publicKey.toBase58()}
-              style={{ border: "1px solid #555", padding: "1rem", marginTop: "1rem" }}
-            >
-              <p>Battle: {b.publicKey.toBase58()}</p>
-              <p>Mode: {renderMode(b.battleMode)}</p>
-              <p>Status: {renderStatus(b.status)}</p>
-              {b.winner && (
-                <p>
-                  Winner:{" "}
-                  <span style={{ color: b.winner.toBase58() === publicKey.toBase58() ? "green" : "red" }}>
-                    {b.winner.toBase58() === publicKey.toBase58() ? "You" : b.winner.toBase58()}
-                  </span>
-                </p>
-              )}
-              {"pending" in b.status &&
-                b.signer.toBase58() === publicKey.toBase58() && (
-                  <button
-                    style={{ marginTop: "0.5rem", color: "red" }}
-                    disabled={cancelling === b.publicKey.toBase58()}
-                    onClick={() => handleCancelBattle(b)}
-                  >
-                    {cancelling === b.publicKey.toBase58() ? "Cancelling..." : "Cancel Battle"}
-                  </button>
-                )}
-            </div>
-          ))}
-        </section>
-      )}
+                <div className="mb-5">
+                  <label className="font-pixel text-steel-2 block mb-1.5">BATTLE MODE</label>
+                  <div className="flex gap-2">
+                    {(["pinkSlip", "bite"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => setBattleMode(mode)}
+                        className={`pixel-btn ${battleMode === mode ? (mode === "pinkSlip" ? "pixel-btn--red" : "pixel-btn--gold") : "pixel-btn--primary"} flex-1 `}
+                      >
+                        {mode === "pinkSlip" ? "PINK SLIP" : "BITE"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="font-vt text-[18px] text-steel-3 mt-1.5">
+                    {battleMode === "pinkSlip" ? "Winner takes opponent's NFT forever." : "Winner steals 20% power. NFTs returned."}
+                  </div>
+                </div>
 
-      {toast && (
-        <Toast
-          message={toast.message}
-          txSignature={toast.txSignature}
-          onClose={hideToast}
-        />
-      )}
+                <div
+                  className="grid grid-cols-2 gap-2 mb-5 transition-opacity duration-150"
+                  style={{ opacity: targetOpponentNft.trim() !== "" ? 0.3 : 1, pointerEvents: targetOpponentNft.trim() !== "" ? "none" : "auto" }}
+                >
+                  <div>
+                    <label className="font-pixel text-steel-2 block mb-1">
+                      MIN PWR (OPTIONAL) {targetOpponentNft.trim() !== "" && <span className="text-steel-4">(ignored)</span>}
+                    </label>
+                    <input type="number" className="pixel-input" value={minPower} onChange={(e) => setMinPower(e.target.value)} placeholder="0" disabled={targetOpponentNft.trim() !== ""} />
+                  </div>
+                  <div>
+                    <label className="font-pixel text-steel-2 block mb-1">
+                      MAX PWR (OPTIONAL) {targetOpponentNft.trim() !== "" && <span className="text-steel-4">(ignored)</span>}
+                    </label>
+                    <input type="number" className="pixel-input" value={maxPower} onChange={(e) => setMaxPower(e.target.value)} placeholder="9999" disabled={targetOpponentNft.trim() !== ""} />
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <label className="font-pixel text-md text-steel-2 block mb-1">TARGET NFT MINT (OPTIONAL)</label>
+                  <input type="text" className="pixel-input" value={targetOpponentNft} onChange={(e) => setTargetOpponentNft(e.target.value)} placeholder="Paste mint address..." />
+                </div>
+
+                <button
+                  className="pixel-btn pixel-btn--red w-full text-[11px] py-[14px] flex items-center justify-center gap-2"
+                  onClick={handleCreateBattle}
+                  disabled={creating || !selectedMint}
+                >
+                  <Swords size={14} />
+                  {creating ? "CREATING BATTLE..." : "INITIATE BATTLE"}
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+      </div>
+
+      {toast && <Toast message={toast.message} txSignature={toast.txSignature} onClose={hideToast} />}
     </main>
   );
 }

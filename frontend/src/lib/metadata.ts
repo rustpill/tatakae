@@ -45,3 +45,24 @@ export function getCollectionFromMetadata(data: Buffer): { key: PublicKey; verif
     return null;
   }
 }
+
+export function getUriFromMetadata(data: Buffer): string | null {
+  try {
+    // skip: key (1) + update_authority (32) + mint (32)
+    let offset = 1 + 32 + 32;
+ 
+    const nameLen = data.readUInt32LE(offset);
+    offset += 4 + nameLen;
+ 
+    const symbolLen = data.readUInt32LE(offset);
+    offset += 4 + symbolLen;
+ 
+    const uriLen = data.readUInt32LE(offset);
+    offset += 4;
+ 
+    const uri = data.subarray(offset, offset + uriLen).toString("utf8").replace(/\0/g, "").trim();
+    return uri.length > 0 ? uri : null;
+  } catch {
+    return null;
+  }
+}
