@@ -27,8 +27,8 @@ import sharp from "sharp";
 
 const RPC_URL = "http://127.0.0.1:8899";
 
-// Fighters to be genned for tests
-const FIGHTER_POWERS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100];
+// 100 fighters with powers 100–10000
+const FIGHTER_POWERS = Array.from({ length: 50 }, (_, i) => (i + 1) * 100);
 
 const WALLET_PATH = path.join(os.homedir(), ".config/solana/id.json");
 const IDL_PATH    = path.resolve(__dirname, "../../target/idl/anchor.json");
@@ -111,13 +111,11 @@ function computeLeaf(mint: PublicKey, power: number): Buffer {
   powerBytes.writeUInt16LE(power, 0);
   return Buffer.from(keccak_256(Buffer.concat([mintBytes, powerBytes])));
 }
-
 function hashPair(a: Buffer, b: Buffer): Buffer {
   return Buffer.compare(a, b) <= 0
     ? Buffer.from(keccak_256(Buffer.concat([a, b])))
     : Buffer.from(keccak_256(Buffer.concat([b, a])));
 }
-
 function buildTree(leaves: Buffer[]): Buffer[][] {
   const layers: Buffer[][] = [leaves];
   let current = leaves;
@@ -135,7 +133,6 @@ function buildTree(leaves: Buffer[]): Buffer[][] {
   }
   return layers;
 }
-
 function getProof(layers: Buffer[][], index: number): Buffer[] {
   const proof: Buffer[] = [];
   let i = index;
@@ -145,6 +142,22 @@ function getProof(layers: Buffer[][], index: number): Buffer[] {
     i = Math.floor(i / 2);
   }
   return proof;
+}
+
+// D1 Seed faucet
+async function seedFaucetD1(fighters: { mint: string; power: number }[]): Promise<void> {
+  const workerUrl    = process.env.WORKER_URL!;
+  const workerSecret = process.env.WORKER_SECRET!;
+  const res = await fetch(`${workerUrl}/seed-faucet`, {
+    method: "POST",
+    headers: {
+      "Content-Type":  "application/json",
+      "Authorization": `Bearer ${workerSecret}`,
+    },
+    body: JSON.stringify({ fighters }),
+  });
+  if (!res.ok) throw new Error(`Failed to seed faucet: ${await res.text()}`);
+  console.log(`Seeded ${fighters.length} fighters to D1 faucet table\n`);
 }
 
 // Summary
@@ -346,6 +359,10 @@ for (const fighter of output.fighters) {
     JSON.stringify({ mint: fighter.mint, power: fighter.power, proof: fighter.proof }, null, 2)
   );
 }
+
+// Seed faucet D1
+console.log("Seeding faucet D1 table\n");
+await seedFaucetD1(output.fighters.map(f => ({ mint: f.mint, power: f.power })));
 
 console.log("Metadata upload complete");
   printSummary(output);
