@@ -15,7 +15,7 @@ export default function LandingPage() {
   }, []);
 
   const statCards = [
-    { icon: Users, label: "TOTAL\nFIGHTERS", value: stats?.totalFighters },
+    { icon: Users, label: "ACTIVE\nFIGHTERS", value: stats?.totalFighters },
     { icon: Swords, label: "OPEN\nBATTLES", value: stats?.openBattles },
     { icon: Trophy, label: "BATTLES\nRESOLVED", value: stats?.resolvedBattles },
   ];
