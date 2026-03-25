@@ -27,7 +27,7 @@ import sharp from "sharp";
 
 const RPC_URL = "http://127.0.0.1:8899";
 
-// 100 fighters with powers 100–10000
+// 50 fighters with powers 100–10000
 const FIGHTER_POWERS = Array.from({ length: 50 }, (_, i) => (i + 1) * 100);
 
 const WALLET_PATH = path.join(os.homedir(), ".config/solana/id.json");

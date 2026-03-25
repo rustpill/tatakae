@@ -1,8 +1,10 @@
 {
+  "name": "anchor",
   "license": "ISC",
   "scripts": {
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
-    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
+    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
+    "setup": "pnpm exec ts-node tests/scripts/setup.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1006.0",
