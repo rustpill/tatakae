@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import idl from "@/idl/anchor.json";
-import type { Anchor } from "@/idl/program";
+import type { Anchor } from "@/idl/anchor.ts";
 
 export function useAnchorProgram() {
   const { connection } = useConnection();

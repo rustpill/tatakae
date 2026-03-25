@@ -247,7 +247,7 @@ export function BattleCard({
           <div className="flex gap-2 flex-wrap items-center">
             <ModeBadge mode={b.battleMode} />
             {(b.minPower !== null || b.maxPower !== null) && (
-              <span className="font-pixel text-[7px] text-steel-2 px-1.5 py-0.5 border border-steel-4">
+              <span className="font-pixel text-sm text-steel-2 px-1.5 py-0.5 border border-steel-4">
                 PWR {b.minPower ?? 0}–{b.maxPower ?? "MAX"}
               </span>
             )}

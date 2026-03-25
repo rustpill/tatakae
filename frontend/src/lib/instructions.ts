@@ -3,7 +3,7 @@ import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import type { Anchor } from "@/idl/program";
+import type { Anchor } from "@/idl/anchor.ts";
 import type { BattleAccount, BattleHistoryRecord, FighterOption, FighterMetadataJson } from "@/types";
 import {
   getFighterPda,

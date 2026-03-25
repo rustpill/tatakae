@@ -2,7 +2,7 @@ import { Connection } from "@solana/web3.js";
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import idl from "@/idl/anchor.json";
-import type { Anchor } from "@/idl/program";
+import type { Anchor } from "@/idl/anchor.ts";
 
 const connection = new Connection(
   process.env.NEXT_PUBLIC_RPC_URL ?? "http://127.0.0.1:8899",
