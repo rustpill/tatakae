@@ -28,6 +28,7 @@ pub struct CancelBattle<'info> {
         mut,
         seeds = [ESCROW_SEED, battle.key().as_ref(), signer_mint.key().as_ref()],
         bump,
+        constraint = signer_escrow.amount == 1 @ FighterError::InvalidNFTMint,
     )]
     pub signer_escrow: Box<Account<'info, TokenAccount>>,
 

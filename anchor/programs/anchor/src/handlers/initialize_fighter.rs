@@ -102,6 +102,9 @@ pub fn initialize_fighter(
     let fighter = &mut ctx.accounts.fighter;
     let clock = Clock::get()?;
 
+    // Verify not 0 power
+    require!(power > 0, FighterError::ZeroPowerFighter);
+
     fighter.mint = mint;
     fighter.power = power;
     fighter.wins = 0;

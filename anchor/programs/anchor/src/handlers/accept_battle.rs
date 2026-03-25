@@ -62,12 +62,14 @@ pub struct AcceptBattle<'info> {
     #[account(
         seeds = [FIGHTER_SEED, battle.signer_nft.as_ref()],
         bump,
+        constraint = signer_fighter.mint == battle.signer_nft @ FighterError::InvalidNFTMint,
     )]
     pub signer_fighter: Box<Account<'info, Fighter>>,
 
     /// Opponent Fighter PDA derived from their NFT mint
     #[account(
         seeds = [FIGHTER_SEED, opponent_mint.key().as_ref()],
+        constraint = opponent_fighter.mint == opponent_mint.key() @ FighterError::InvalidNFTMint,
         bump,
     )]
     pub opponent_fighter: Box<Account<'info, Fighter>>,
