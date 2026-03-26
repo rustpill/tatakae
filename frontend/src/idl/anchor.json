@@ -1789,6 +1789,64 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "update_config",
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "address": "2QZvzZ4XszjtBiPKMy7wb3YZ4EwbRTovbDki99c4Cr87"
+        },
+        {
+          "name": "config",
+          "docs": [
+            "Create config PDA storing our merkle root"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "merkle_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "collection_mint",
+          "type": "pubkey"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -1899,6 +1957,19 @@
       ]
     },
     {
+      "name": "ConfigUpdated",
+      "discriminator": [
+        40,
+        241,
+        230,
+        122,
+        11,
+        19,
+        198,
+        194
+      ]
+    },
+    {
       "name": "FighterInitialized",
       "discriminator": [
         126,
@@ -1997,6 +2068,11 @@
       "code": 6016,
       "name": "ZeroPowerFighter",
       "msg": "Fighter power cannot be zero"
+    },
+    {
+      "code": 6017,
+      "name": "NoChanges",
+      "msg": "No changes to be made in the config"
     }
   ],
   "types": [
@@ -2321,6 +2397,27 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "merkle_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "collection_mint",
+            "type": "pubkey"
           }
         ]
       }
