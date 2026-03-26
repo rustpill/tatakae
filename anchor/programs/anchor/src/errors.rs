@@ -53,4 +53,7 @@ pub enum FighterError {
 
     #[msg("Fighter power cannot be zero")]
     ZeroPowerFighter,
+
+    #[msg("No changes to be made in the config")]
+    NoChanges,
 }

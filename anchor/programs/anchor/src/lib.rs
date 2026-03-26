@@ -64,7 +64,12 @@ pub mod anchor {
         handlers::cancel_battle(ctx)?;
         Ok(())
     }
-}
 
-#[derive(Accounts)]
-pub struct Initialize {}
+    pub fn update_config(
+        ctx: Context<UpdateConfig>,
+        merkle_root: [u8; 32],
+        collection_mint: Pubkey,
+    ) -> Result<()> {
+        handlers::update_config::update_config(ctx, merkle_root, collection_mint)
+    }
+}
