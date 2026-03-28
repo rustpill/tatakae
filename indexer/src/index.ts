@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 globalThis.Buffer = Buffer;
 
-import { Keypair, Connection, PublicKey, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from "@solana/web3.js";
+import { Keypair, Connection, PublicKey, TransactionMessage, VersionedTransaction, ComputeBudgetProgram, SignatureStatusConfig } from "@solana/web3.js";
 import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
@@ -220,15 +220,12 @@ export default {
 
         // Send and confirm
         const sig = await connection.sendRawTransaction(tx.serialize());
-        console.log(sig)
-        //await connection.confirmTransaction(
-        //  {
-        //    signature: sig,
-        //    blockhash,
-        //    lastValidBlockHeight
-        //  },
-        //  "confirmed"
-        //);
+        let config: SignatureStatusConfig = {
+          searchTransactionHistory: true
+        };
+
+        let signatureStatus = await connection.getSignatureStatuses([sig], config);
+        console.log(signatureStatus);
 
         // Mark as claimed
         await env.DB.prepare(
