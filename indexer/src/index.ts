@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 globalThis.Buffer = Buffer;
 
-import { Keypair, Connection, PublicKey, Transaction} from "@solana/web3.js";
+import { Keypair, Connection, PublicKey, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from "@solana/web3.js";
 import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
@@ -68,13 +68,7 @@ export default {
 
     // preflight
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        },
-      });
+      return new Response(null, { headers: CORS_HEADERS });
     }
  
     if (url.pathname === "/history") {
@@ -148,12 +142,15 @@ export default {
     // POST /faucet/mint send nft to target
     if (url.pathname === "/faucet/mint" && request.method === "POST") {
       try {
+        // Require wallet
         const { wallet } = await request.json() as { wallet: string };
         if (!wallet) {
           return new Response(JSON.stringify({ error: "wallet required" }), {
-            status: 400, headers: CORS_HEADERS,
-          });
+            status: 400,
+            headers: CORS_HEADERS,
+        });
         }
+
         // One mint per wallet
         const alreadyClaimed = await env.DB.prepare(
           "SELECT mint FROM faucet_fighters WHERE claimed_by = ? LIMIT 1"
@@ -164,6 +161,7 @@ export default {
             mint: alreadyClaimed.mint,
           }), { status: 400, headers: CORS_HEADERS });
         }
+
         // Grab an unclaimed fighter
         const fighter = await env.DB.prepare(
           "SELECT mint, power FROM faucet_fighters WHERE claimed_by IS NULL ORDER BY RANDOM() LIMIT 1"
@@ -173,6 +171,7 @@ export default {
             status: 404, headers: CORS_HEADERS,
           });
         }
+
         // Transfer NFT to wallet
         const keypair    = Keypair.fromSecretKey(new Uint8Array(JSON.parse(env.AUTHORITY_KEYPAIR) as number[]));
         const connection = new Connection(env.RPC_URL, "confirmed");
@@ -180,60 +179,71 @@ export default {
         const recipient  = new PublicKey(wallet);
         const authorityAta  = await getAssociatedTokenAddress(mintPubkey, keypair.publicKey);
         const recipientAta  = await getAssociatedTokenAddress(mintPubkey, recipient);
-        const tx = new Transaction();
-        // Create recipient ATA if it doesn't exist
-        const recipientAtaInfo = await connection.getAccountInfo(recipientAta);
-        if (!recipientAtaInfo) {
-          tx.add(createAssociatedTokenAccountInstruction(
-            keypair.publicKey, recipientAta, recipient, mintPubkey
-          ));
-        }
-        tx.add(createTransferInstruction(
-          authorityAta, recipientAta, keypair.publicKey, 1
-        ));
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-        tx.recentBlockhash = blockhash;
-        tx.lastValidBlockHeight = lastValidBlockHeight;
-        tx.feePayer = keypair.publicKey;
-        tx.sign(keypair);
-        const sig = await connection.sendRawTransaction(tx.serialize(), {skipPreflight: true});
-        // Temp confirm strat remove for dev net
-        const latestBlockHash = await connection.getLatestBlockhash();
-        const confirmStrategy = {
-          blockhash: latestBlockHash.blockhash,
-          lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-          signature: sig,
-        };
 
-        try {
-          await connection.confirmTransaction(confirmStrategy, "confirmed");
-        } catch (err: any) {
-          if (err?.name === "TransactionExpiredBlockheightExceededError") {
-            // Wait and check if landed
-            await new Promise((r) => setTimeout(r, 3000));
-            const status = await connection.getSignatureStatus(sig);
-            if (!status.value || status.value.err) {
-              throw new Error("Transaction failed to land");
-            }
-            // landed continue
-          } else {
-            throw err;
-          }
+        const instructions = [];
+
+        // Create ATA if needed
+        const recipientInfo = await connection.getAccountInfo(recipientAta);
+        if (!recipientInfo) {
+          instructions.push(
+            createAssociatedTokenAccountInstruction(
+              keypair.publicKey,
+              recipientAta,
+              recipient,
+              mintPubkey
+            )
+          );
         }
+
+        // Transfer NFT
+        instructions.push(
+          createTransferInstruction(
+            authorityAta,
+            recipientAta,
+            keypair.publicKey,
+            1
+          )
+        );
+
+        const { blockhash, lastValidBlockHeight } =
+          await connection.getLatestBlockhash();
+
+        const message = new TransactionMessage({
+          payerKey: keypair.publicKey,
+          recentBlockhash: blockhash,
+          instructions
+        }).compileToV0Message();
+
+        // Sign
+        const tx = new VersionedTransaction(message);
+        tx.sign([keypair]);
+
+        // Send and confirm
+        const sig = await connection.sendRawTransaction(tx.serialize());
+        console.log(sig)
+        //await connection.confirmTransaction(
+        //  {
+        //    signature: sig,
+        //    blockhash,
+        //    lastValidBlockHeight
+        //  },
+        //  "confirmed"
+        //);
+
         // Mark as claimed
         await env.DB.prepare(
           "UPDATE faucet_fighters SET claimed_by = ?, claimed_at = ? WHERE mint = ?"
         ).bind(wallet, Math.floor(Date.now() / 1000), fighter.mint).run();
         console.log(`Faucet: minted ${fighter.mint} (PWR:${fighter.power}) to ${wallet}`);
         return new Response(JSON.stringify({
-          mint:        fighter.mint,
-          power:       fighter.power,
-          txSignature: sig,
+          mint: fighter.mint,
+          power: fighter.power,
         }), { headers: CORS_HEADERS });
+
       } catch (err: any) {
-        console.error("Faucet mint error:", err);
-        return new Response(JSON.stringify({ error: err.message ?? "Unknown error" }), {
-          status: 500, headers: CORS_HEADERS,
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: CORS_HEADERS,
         });
       }
     }

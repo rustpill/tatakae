@@ -416,7 +416,7 @@ export default function ArenaPage() {
             {publicKey && myFighters.length === 0 && (
               <div className="font-pixel  text-steel-3 text-center py-6 leading-[3]">
                 NO FIGHTERS AVAILABLE<br />
-                <Link href="/profile" className="text-gold no-underline text-[8px]">
+                <Link href="/profile" className="text-gold no-underline ">
                   GO TO PROFILE TO REGISTER
                 </Link>
               </div>

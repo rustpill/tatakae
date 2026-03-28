@@ -6,14 +6,12 @@ import {
   createNft,
   verifyCollectionV1,
   findMetadataPda,
-  findMasterEditionPda,
   mplTokenMetadata,
 } from "@metaplex-foundation/mpl-token-metadata";
 import {
   generateSigner,
   keypairIdentity,
   percentAmount,
-  transactionBuilder,
 } from "@metaplex-foundation/umi";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import * as fs from "fs";
@@ -25,13 +23,18 @@ dotenv.config({ path: path.resolve(__dirname, "../../.env.local") });
 // For img gen
 import sharp from "sharp";
 
-const RPC_URL = "http://127.0.0.1:8899";
+const RPC_URL = process.env.RPC_URL ?? "http://127.0.0.1:8899";
 
-// 50 fighters with powers 100–10000
-const FIGHTER_POWERS = Array.from({ length: 50 }, (_, i) => (i + 1) * 100);
+// Fighters with powers to be minted
+function randomIntRanged() {
+  // Min: 100, Max: 5000
+  return Math.floor(Math.random() * (5000 - 100 + 1)) + 100;
+}
+// 100 fighters
+const FIGHTER_POWERS = Array.from({ length: 100 }, () => randomIntRanged());
 
 const WALLET_PATH = path.join(os.homedir(), ".config/solana/id.json");
-const IDL_PATH    = path.resolve(__dirname, "../../target/idl/anchor.json");
+const IDL_PATH = path.resolve(__dirname, "../../target/idl/anchor.json");
 const OUTPUT_DIR  = path.resolve(__dirname, "output");
 const OUTPUT_PATH = path.join(OUTPUT_DIR, "setup.json");
 const CONFIG_SEED = Buffer.from("config");
@@ -214,14 +217,18 @@ const umi        = createUmi(RPC_URL).use(mplTokenMetadata());
 const umiKeypair = umi.eddsa.createKeypairFromSecretKey(keypair.secretKey);
 umi.use(keypairIdentity(umiKeypair));
 
+//
+// UNCOMMENT AIRDROP FOR LOCALNET
+//
+
 // Airdrop
-const sig = await connection.requestAirdrop(keypair.publicKey, 1e9);
-const latestBlockhash = await connection.getLatestBlockhash();
-await connection.confirmTransaction({
-  signature: sig,
-  blockhash: latestBlockhash.blockhash,
-  lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-}, "confirmed");
+// const sig = await connection.requestAirdrop(keypair.publicKey, 1e9);
+// const latestBlockhash = await connection.getLatestBlockhash();
+// await connection.confirmTransaction({
+//   signature: sig,
+//   blockhash: latestBlockhash.blockhash,
+//   lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+// }, "confirmed");
 
 // Verify output dir exists
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -251,49 +258,40 @@ console.log(`Collection ID: ${collectionMint.toBase58()}\n`);
 // Minting NFTs
 console.log("Minting NFTs\n");
 
-const fighters = await Promise.all(
-  FIGHTER_POWERS.map(async (power, i) => {
-    // Each fighter gets its own UMI
-    const umiInstance = createUmi(RPC_URL).use(mplTokenMetadata());
-    umiInstance.use(keypairIdentity(umiKeypair));
+const fighters = [];
+for (let i = 0; i < FIGHTER_POWERS.length; i++) {
+  const power = FIGHTER_POWERS[i];
+  const umiInstance = createUmi(RPC_URL).use(mplTokenMetadata());
+  umiInstance.use(keypairIdentity(umiKeypair));
+  const mintSigner = generateSigner(umiInstance);
 
-    const mintSigner = generateSigner(umiInstance);
+  const imageBuffer = await generateFighterImage(i);
+  await sendToBucket(`images/${mintSigner.publicKey.toString()}.png`, imageBuffer, "image/png");
 
-    // Generate image first
-    const imageBuffer = await generateFighterImage(i);
+  const uri = await uploadMetadataToR2(mintSigner.publicKey.toString(), i, power);
 
-    // Upload image to R2
-    await sendToBucket(
-      `images/${mintSigner.publicKey.toString()}.png`,
-       imageBuffer,
-      "image/png"
-    )
+  await createNft(umiInstance, {
+      mint: mintSigner,
+      name: `Tatakae #${i + 1}`,
+      symbol: "KAE",
+      uri,
+      sellerFeeBasisPoints: percentAmount(0),
+      collection: { key: collectionSigner.publicKey, verified: false },
+  }).sendAndConfirm(umiInstance, {
+    confirm: { commitment: "finalized" },
+  });
+  // Dev net requires it to be seperated and wait for finalized for some reason
+  await verifyCollectionV1(umiInstance, {
+    metadata: findMetadataPda(umiInstance, {
+      mint: mintSigner.publicKey,
+    }),
+    collectionMint: collectionSigner.publicKey,
+    authority: umiInstance.identity,
+    }).sendAndConfirm(umiInstance);
 
-    // upload metadata
-    const uri = await uploadMetadataToR2(
-      mintSigner.publicKey.toString(), i, power
-    );
-
-    await transactionBuilder()
-      .add(createNft(umiInstance, {
-        mint: mintSigner,
-        name: `Fighter #${i + 1}`,
-        symbol: "FGT",
-        uri,
-        sellerFeeBasisPoints: percentAmount(0),
-        collection: { key: collectionSigner.publicKey, verified: false },
-      }))
-      .add(verifyCollectionV1(umiInstance, {
-        metadata: findMetadataPda(umiInstance, { mint: mintSigner.publicKey }),
-        collectionMint: collectionSigner.publicKey,
-        collectionMetadata: findMetadataPda(umiInstance, { mint: collectionSigner.publicKey }),
-        collectionMasterEdition: findMasterEditionPda(umiInstance, { mint: collectionSigner.publicKey }),
-        authority: umiInstance.identity,
-      }))
-      .sendAndConfirm(umiInstance);
-    return { mint: mintSigner.publicKey.toString(), power };
-  })
-);
+  console.log(`  [${i + 1}/${FIGHTER_POWERS.length}] Minted: ${mintSigner.publicKey.toString()} PWR:${power}`);
+  fighters.push({ mint: mintSigner.publicKey.toString(), power });
+}
 
 // Gen merkle proof for minted NFTs
 const leaves = fighters.map(f => computeLeaf(new PublicKey(f.mint), f.power));

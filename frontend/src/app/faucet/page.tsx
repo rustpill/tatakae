@@ -15,7 +15,6 @@ interface FaucetStatus {
 interface MintResult {
   mint: string;
   power: number;
-  txSignature: string;
 }
 
 export default function FaucetPage() {
@@ -175,10 +174,6 @@ export default function FaucetPage() {
                   <div>
                     <div style={{ fontFamily: "var(--font-pixel)", fontSize: 8, color: "var(--steel-3)", marginBottom: 4 }}>NFT MINT</div>
                     <ExplorerLink address={result.mint} type="address" />
-                  </div>
-                  <div>
-                    <div style={{ fontFamily: "var(--font-pixel)", fontSize: 8, color: "var(--steel-3)", marginBottom: 4 }}>TRANSACTION</div>
-                    <ExplorerLink address={result.txSignature} type="tx" />
                   </div>
                 </div>
                 <div style={{ marginTop: 16, fontFamily: "var(--font-vt)", fontSize: 20, color: "var(--steel-2)", lineHeight: 1.5 }}>
