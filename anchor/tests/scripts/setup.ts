@@ -347,16 +347,17 @@ fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
 console.log(`Saved to: ${OUTPUT_PATH}`);
 
 // write proofs to frontend /public
-const PROOFS_DIR = path.resolve(__dirname, "../../../frontend/public/proofs");
-if (!fs.existsSync(PROOFS_DIR)) fs.mkdirSync(PROOFS_DIR, { recursive: true });
-
-for (const fighter of output.fighters) {
-  const proofFile = path.join(PROOFS_DIR, `${fighter.mint}.json`);
-  fs.writeFileSync(
-    proofFile,
-    JSON.stringify({ mint: fighter.mint, power: fighter.power, proof: fighter.proof }, null, 2)
-  );
-}
+console.log("Uploading proofs to R2...\n");
+await Promise.all(
+  output.fighters.map((fighter) =>
+    sendToBucket(
+      `merkle/${fighter.mint}.json`,
+      JSON.stringify({ mint: fighter.mint, power: fighter.power, proof: fighter.proof }, null, 2),
+      "application/json"
+    )
+  )
+);
+console.log(`Uploaded ${output.fighters.length} proofs to R2 merkle/\n`);
 
 // Seed faucet D1
 console.log("Seeding faucet D1 table\n");

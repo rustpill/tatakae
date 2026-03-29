@@ -165,7 +165,7 @@ export async function initializeAllFighters(
   const transactions: Transaction[] = [];
  
   for (const mint of uninitMints) {
-    const res = await fetch(`/proofs/${mint.toBase58()}.json`);
+    const res = await fetch(`${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/merkle/${mint.toBase58()}.json`);
     if (!res.ok) throw new Error(`No proof found for mint ${mint.toBase58().slice(0, 8)}...`);
     const data = await res.json();
     const proofBytes = data.proof.map((p: number[]) => Array.from(p));
@@ -275,7 +275,7 @@ export async function acceptBattle(
   const needsInit = fighterAccount === null;
 
   if (needsInit) {
-    const res = await fetch(`/proofs/${opponentMint.toBase58()}.json`);
+    const res = await fetch(`${process.env.NEXT_PUBLIC_R2_PUBLIC_URL}/merkle/${opponentMint.toBase58()}.json`);
     const fighterData = await res.json();
     if (!fighterData) throw new Error("Cannot accept: opponent NFT has no fighter data");
 
