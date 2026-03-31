@@ -3,7 +3,7 @@
 Tatakae is an on-chain NFT battle game on Solana. Users can engage in "Pink Slip" or "Bite" (power drain) battles with their NFTs.
 
 <p align="center">
-  <img src="./frontend/public/logo.png" alt="Logo" width="200" />
+  <img src="./frontend/public/logo.png" alt="Logo" width="250" />
   <br>
   <a href="https://tatakae-frontend.vercel.app/">Website</a> | <a href="./setup.md">Setup Guide</a>
 </p>
@@ -32,7 +32,8 @@ Tatakae is an on-chain NFT battle game on Solana. Users can engage in "Pink Slip
       <img src="https://img.shields.io/badge/Wrangler-%E2%89%A54-F38020?logo=cloudflare&logoColor=white&style=flat-square" height="20" alt="Wrangler ≥4">
   </a>
 </div>
- 
+<br>
+
 ```bash
 # Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
