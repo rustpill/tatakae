@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Users, Swords, Trophy } from "lucide-react";
+import { Users, Swords, Trophy, Github } from "lucide-react";
 import { PixelNav } from "@/components/PixelNav";
 import { ArenaStats } from "@/types";
 import { fetchArenaStats } from "@/lib/instructions";
@@ -63,7 +63,7 @@ export default function LandingPage() {
         />
 
         {/* Tagline */}
-        <div className="relative font-pixel text-steel-2 tracking-[4px] text-center -mt-6">
+        <div className="relative font-pixel text-steel-2 tracking-[4px] text-2xl text-center -mt-6">
           NFT FIGHTING GAME ON SOLANA
         </div>
 
@@ -77,7 +77,7 @@ export default function LandingPage() {
                 <div className="flex justify-center">
                   <Icon size={24} className="text-steel-3" />
                 </div>
-                <div className="font-pixel text-gold">
+                <div className="font-pixel text-gold text-3xl">
                   {isLoading
                     ? <span style={{ display: "inline-block", animation: "blink 0.8s infinite" }}>...</span>
                     : s.value
@@ -100,6 +100,14 @@ export default function LandingPage() {
             <button className="pixel-btn pixel-btn--primary text-[12px] px-9 py-4">MY FIGHTERS</button>
           </Link>
         </div>
+
+        <a
+          href="https://github.com/rustpill/tatakae"
+          target="_blank"
+          className="absolute bottom-4 z-10000 right-4 p-2 hover:scale-110 transition-transform"
+        >
+          <Github size={42} className="text-steel-1"/>
+        </a>
 
       </section>
 
