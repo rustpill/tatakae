@@ -1,5 +1,5 @@
-name = project_name
-account_id = account_id
+name = "project_name"
+account_id = "R2_ACCOUNT_ID"
 main = "src/index.ts"
 compatibility_date = "2026-03-01"
 compatibility_flags = ["nodejs_compat"]
@@ -8,11 +8,11 @@ compatibility_flags = ["nodejs_compat"]
 crons = ["* * * * *"]
 
 [[r2_buckets]]
-bucket_name = bucket_name
-binding = binding_name
-remote = true // for testing
+bucket_name = "R2_BUCKET_NAME"
+binding = "R2" # Dont change
+remote = true
 
 [[d1_databases]]
-binding = binding_name
-database_name = database_name
-database_id = database_id
+database_name = "database_name"
+binding = "D1" # Dont change
+database_id = "database_id"

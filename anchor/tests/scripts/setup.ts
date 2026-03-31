@@ -346,7 +346,7 @@ const output = {
 fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
 console.log(`Saved to: ${OUTPUT_PATH}`);
 
-// write proofs to frontend /public
+// write proofs to r2
 console.log("Uploading proofs to R2...\n");
 await Promise.all(
   output.fighters.map((fighter) =>

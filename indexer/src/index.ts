@@ -15,9 +15,9 @@ import { CORS_HEADERS } from "./constants";
 export interface Env {
   RPC_URL: string;
   AUTHORITY_KEYPAIR: string;
-  tatakae_metadata: R2Bucket;
+  R2: R2Bucket;
   WORKER_SECRET:     string;
-  DB: D1Database;
+  D1: D1Database;
 }
 
 export default {
@@ -33,7 +33,7 @@ export default {
         
         // Write battle history to D1
         const stmts = battleRecords.map((record) =>
-          env.DB.prepare(`INSERT OR IGNORE INTO battle_history
+          env.D1.prepare(`INSERT OR IGNORE INTO battle_history
             (id, signer, signer_nft, opponent, opponent_nft, winner, battle_mode, signer_power, opponent_power, resolved_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .bind(
@@ -44,17 +44,17 @@ export default {
         );
 
         // One round trip for all of them
-        if (stmts.length > 0) await env.DB.batch(stmts);
+        if (stmts.length > 0) await env.D1.batch(stmts);
         
         // Sync metadata for resolved NFTs
         const mintsToSync = resolvedBattles.flatMap((b) => [b.signerNft, b.opponentNft]);
-        await syncFighterMetadata(env.RPC_URL, keypair, env.tatakae_metadata, mintsToSync);
+        await syncFighterMetadata(env.RPC_URL, keypair, env.R2, mintsToSync);
         break;
       }
 
       case "retry":
       case "*/10 * * * *": {
-        await retryFailedMetadata(env.RPC_URL, keypair, env.tatakae_metadata);
+        await retryFailedMetadata(env.RPC_URL, keypair, env.R2);
         break;
       }
 
@@ -81,7 +81,7 @@ export default {
       }
  
       try {
-        const { results } = await env.DB.prepare(`
+        const { results } = await env.D1.prepare(`
           SELECT * FROM battle_history
           WHERE signer = ? OR opponent = ?
           ORDER BY resolved_at DESC
@@ -101,7 +101,7 @@ export default {
 
     if (url.pathname === "/stats") {
       try {
-        const result = await env.DB.prepare(
+        const result = await env.D1.prepare(
           "SELECT COUNT(*) as count FROM battle_history"
         ).first<{ count: number }>();
 
@@ -122,11 +122,11 @@ export default {
         });
       }
       try {
-        const claimed = await env.DB.prepare(
+        const claimed = await env.D1.prepare(
           "SELECT COUNT(*) as count FROM faucet_fighters WHERE claimed_by = ?"
         ).bind(wallet).first<{ count: number }>();
  
-        const remaining = await env.DB.prepare(
+        const remaining = await env.D1.prepare(
           "SELECT COUNT(*) as count FROM faucet_fighters WHERE claimed_by IS NULL"
         ).first<{ count: number }>();
  
@@ -152,7 +152,7 @@ export default {
         }
 
         // One mint per wallet
-        const alreadyClaimed = await env.DB.prepare(
+        const alreadyClaimed = await env.D1.prepare(
           "SELECT mint FROM faucet_fighters WHERE claimed_by = ? LIMIT 1"
         ).bind(wallet).first<{ mint: string }>();
         if (alreadyClaimed) {
@@ -163,7 +163,7 @@ export default {
         }
 
         // Grab an unclaimed fighter
-        const fighter = await env.DB.prepare(
+        const fighter = await env.D1.prepare(
           "SELECT mint, power FROM faucet_fighters WHERE claimed_by IS NULL ORDER BY RANDOM() LIMIT 1"
         ).first<{ mint: string; power: number }>();
         if (!fighter) {
@@ -228,7 +228,7 @@ export default {
         console.log(signatureStatus);
 
         // Mark as claimed
-        await env.DB.prepare(
+        await env.D1.prepare(
           "UPDATE faucet_fighters SET claimed_by = ?, claimed_at = ? WHERE mint = ?"
         ).bind(wallet, Math.floor(Date.now() / 1000), fighter.mint).run();
         console.log(`Faucet: minted ${fighter.mint} (PWR:${fighter.power}) to ${wallet}`);
@@ -255,11 +255,11 @@ export default {
       try {
         const { fighters } = await request.json() as { fighters: { mint: string; power: number }[] };
         const stmts = fighters.map((f) =>
-          env.DB.prepare(
+          env.D1.prepare(
             "INSERT OR IGNORE INTO faucet_fighters (mint, power) VALUES (?, ?)"
           ).bind(f.mint, f.power)
         );
-        await env.DB.batch(stmts);
+        await env.D1.batch(stmts);
         console.log(`Seeded ${fighters.length} fighters into faucet_fighters`);
         return new Response(JSON.stringify({ seeded: fighters.length }), { headers: CORS_HEADERS });
       } catch (err: any) {
