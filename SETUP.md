@@ -151,14 +151,13 @@ Leave this running, open another terminal for the next steps.
 
 ## Step 4 - Build and deploy the Anchor program
 
-### Edit [constants.rs](`./anchor/programs/anchor/src/constants.rs`)
+### Edit [constants.rs](./anchor/programs/anchor/src/constants.rs)
 ```rust
 // Run solana-keygen pubkey, to get your publickey
 pub const PROGRAM_AUTHORITY: Pubkey = pubkey!("YOUR_PUBLIC_KEY");
 
 ```
-
-### Edit [anchor/.env.local](`./anchor/.env.example`)
+### Edit [anchor/.env.local](./anchor/.env.example)
 ```bash
 # The remaining values to set
 WORKER_URL=                  # WORKER_URL
@@ -317,7 +316,7 @@ Stop the validator, restart it with `--reset`, re-run `anchor deploy`, clear the
 | `WORKER_SECRET` | Any string - must match `WORKER_SECRET` in `.dev.vars` |
 | `RPC_URL` | `http://127.0.0.1:8899` or `PROVIDED` |
 
-### [`indexer/.dev.vars`](./indexer/.dev.vars)
+### [`indexer/.dev.vars`](./indexer/.dev.vars.example)
 
 | Variable | Description |
 |---|---|

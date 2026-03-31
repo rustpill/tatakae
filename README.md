@@ -5,7 +5,7 @@ Tatakae is an on-chain NFT battle game on Solana. Users can engage in "Pink Slip
 <p align="center">
   <img src="./frontend/public/logo.png" alt="Logo" width="250" />
   <br>
-  <a href="https://tatakae-frontend.vercel.app/">Website</a> | <a href="./setup.md">Setup Guide</a>
+  <a href="https://tatakae-frontend.vercel.app/">Website</a> | <a href="./SETUP.md">Setup Guide</a>
 </p>
 
 ---
@@ -60,4 +60,4 @@ You will also need a **Cloudflare account** with R2, Workers, and D1 enabled, an
 
 ## Setup
 
-See [`SETUP.md`](./setup.md) for full in-depth guide on how to set up the project for local or production.
+See [`SETUP.md`](./SETUP.md) for full in-depth guide on how to set up the project for local or production.
